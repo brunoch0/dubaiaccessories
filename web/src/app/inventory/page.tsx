@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
-import { createClient } from "@/lib/supabase";
+import { createClient, fetchAll } from "@/lib/supabase";
 
 type Product = {
   id: string;
@@ -39,14 +39,30 @@ function InventoryInner() {
   useEffect(() => {
     const supabase = createClient();
     (async () => {
-      const [pRes, iRes, cRes] = await Promise.all([
-        supabase
-          .from("products")
-          .select("id,sku,name,category,flag,price,barcode")
-          .range(0, 2999),
-        supabase.from("inventory").select("product_id,store,qty").range(0, 4999),
-        supabase.from("product_costs").select("product_id,cost").range(0, 4999),
+      const [pData, iData, cData] = await Promise.all([
+        fetchAll<{
+          id: string;
+          sku: string;
+          name: string;
+          category: string;
+          flag: string | null;
+          price: number | null;
+          barcode: string | null;
+        }>(supabase, "products", "id,sku,name,category,flag,price,barcode"),
+        fetchAll<{ product_id: string; store: string; qty: number }>(
+          supabase,
+          "inventory",
+          "product_id,store,qty"
+        ),
+        fetchAll<{ product_id: string; cost: number | null }>(
+          supabase,
+          "product_costs",
+          "product_id,cost"
+        ),
       ]);
+      const pRes = { data: pData };
+      const iRes = { data: iData };
+      const cRes = { data: cData };
       const inv = new Map<string, { mcc: number; moe: number; wh: number }>();
       (iRes.data ?? []).forEach((r) => {
         const e = inv.get(r.product_id) ?? { mcc: 0, moe: 0, wh: 0 };
