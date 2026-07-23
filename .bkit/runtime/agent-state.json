@@ -1,14 +1,35 @@
 {
   "version": "1.0",
-  "enabled": false,
+  "enabled": true,
   "teamName": "",
-  "feature": "",
-  "pdcaPhase": "plan",
+  "feature": "web",
+  "pdcaPhase": "do",
   "orchestrationPattern": "leader",
   "ctoAgent": "opus",
-  "startedAt": "2026-07-23T06:42:00.966Z",
-  "lastUpdated": "2026-07-23T06:50:02.413Z",
-  "teammates": [],
+  "startedAt": "2026-07-23T07:44:05.840Z",
+  "lastUpdated": "2026-07-23T08:01:04.109Z",
+  "teammates": [
+    {
+      "name": "a5076cf7b103f3965",
+      "role": "general-purpose",
+      "model": "sonnet",
+      "status": "completed",
+      "currentTask": null,
+      "taskId": null,
+      "startedAt": "2026-07-23T07:44:05.840Z",
+      "lastActivityAt": "2026-07-23T08:01:04.107Z"
+    },
+    {
+      "name": "af8ae2ac721d45fdc",
+      "role": "general-purpose",
+      "model": "sonnet",
+      "status": "completed",
+      "currentTask": null,
+      "taskId": null,
+      "startedAt": "2026-07-23T07:44:07.932Z",
+      "lastActivityAt": "2026-07-23T08:00:17.401Z"
+    }
+  ],
   "progress": {
     "totalTasks": 0,
     "completedTasks": 0,

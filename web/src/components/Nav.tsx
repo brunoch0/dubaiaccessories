@@ -56,7 +56,6 @@ export default function Nav() {
         {tab("/", "대시보드")}
         {tab("/inventory", "재고")}
         {tab("/scan", "📷 스캔")}
-        {tab("/transfer", "이동추천")}
         <div className="ml-auto flex items-center gap-3">
           {me && (
             <span className="hidden sm:block text-xs text-neutral-500">
