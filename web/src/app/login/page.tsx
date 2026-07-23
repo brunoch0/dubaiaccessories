@@ -29,6 +29,10 @@ export default function LoginPage() {
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) {
       setMsg("가입 실패: " + error.message);
+    } else if (data.user && data.user.identities?.length === 0) {
+      setMsg(
+        "이미 가입된 이메일입니다. 처음 가입할 때 입력한 비밀번호로 로그인하거나, 아래 '비밀번호 재설정'을 이용하세요."
+      );
     } else if (!data.session) {
       setMsg("확인 메일을 보냈습니다. 메일함에서 링크를 눌러 인증 후 로그인하세요.");
     } else {
@@ -79,6 +83,12 @@ export default function LoginPage() {
         {msg && (
           <p className="mt-4 text-sm text-amber-600 dark:text-amber-400">{msg}</p>
         )}
+        <a
+          href="/reset"
+          className="block mt-3 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+        >
+          비밀번호를 잊으셨나요? 재설정하기
+        </a>
         <p className="mt-6 text-xs text-neutral-400">
           가입 즉시 권한이 자동 배정됩니다 (오너/관리자 이메일은 사전 등록됨).
           직원 계정은 기본 Staff 권한입니다.

@@ -1,10 +1,12 @@
 {
   "version": "3.0",
-  "lastUpdated": "2026-07-23T06:56:16.562Z",
+  "lastUpdated": "2026-07-23T07:05:41.861Z",
   "activeFeatures": [
     "web",
     "login",
-    "inventory"
+    "inventory",
+    "reset",
+    "update"
   ],
   "primaryFeature": "web",
   "features": {
@@ -17,9 +19,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-23T06:54:25.031Z",
-        "lastUpdated": "2026-07-23T06:55:31.696Z"
+        "lastUpdated": "2026-07-23T07:05:36.453Z"
       },
-      "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/page.tsx"
+      "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/middleware.ts"
     },
     "login": {
       "phase": "do",
@@ -30,7 +32,7 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-23T06:54:37.629Z",
-        "lastUpdated": "2026-07-23T06:54:37.629Z"
+        "lastUpdated": "2026-07-23T07:05:41.860Z"
       },
       "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/login/page.tsx"
     },
@@ -46,6 +48,32 @@
         "lastUpdated": "2026-07-23T06:56:16.561Z"
       },
       "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/inventory/page.tsx"
+    },
+    "reset": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-23T07:05:18.015Z",
+        "lastUpdated": "2026-07-23T07:05:18.015Z"
+      },
+      "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/reset/page.tsx"
+    },
+    "update": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-23T07:05:25.940Z",
+        "lastUpdated": "2026-07-23T07:05:25.940Z"
+      },
+      "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/reset/update/page.tsx"
     }
   },
   "pipeline": {
@@ -56,7 +84,7 @@
   "session": {
     "startedAt": "2026-07-23T04:04:40.962Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-07-23T06:56:16.562Z"
+    "lastActivity": "2026-07-23T07:05:41.861Z"
   },
   "history": [
     {
@@ -86,6 +114,36 @@
     {
       "timestamp": "2026-07-23T06:56:16.562Z",
       "feature": "inventory",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T07:05:18.016Z",
+      "feature": "reset",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T07:05:25.940Z",
+      "feature": "update",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T07:05:36.454Z",
+      "feature": "web",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T07:05:39.844Z",
+      "feature": "login",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-23T07:05:41.861Z",
+      "feature": "login",
       "phase": "do",
       "action": "updated"
     }
