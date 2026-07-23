@@ -9,7 +9,24 @@ export default function LoginPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  function validate(): boolean {
+    if (!email.trim()) {
+      setMsg("이메일을 입력해주세요.");
+      return false;
+    }
+    if (!password) {
+      setMsg("비밀번호를 입력해주세요. (가입이 처음이면 새로 정하시면 됩니다 — 6자 이상)");
+      return false;
+    }
+    if (password.length < 6) {
+      setMsg("비밀번호는 6자 이상이어야 합니다.");
+      return false;
+    }
+    return true;
+  }
+
   async function signIn() {
+    if (!validate()) return;
     setBusy(true);
     setMsg(null);
     const supabase = createClient();
@@ -23,6 +40,7 @@ export default function LoginPage() {
   }
 
   async function signUp() {
+    if (!validate()) return;
     setBusy(true);
     setMsg(null);
     const supabase = createClient();
@@ -57,24 +75,29 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-transparent px-3 py-2.5 text-sm text-neutral-900 dark:text-white outline-none focus:border-blue-500"
           />
-          <input
-            type="password"
-            placeholder="비밀번호"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && signIn()}
-            className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-transparent px-3 py-2.5 text-sm text-neutral-900 dark:text-white outline-none focus:border-blue-500"
-          />
+          <div>
+            <input
+              type="password"
+              placeholder="비밀번호"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && signIn()}
+              className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-transparent px-3 py-2.5 text-sm text-neutral-900 dark:text-white outline-none focus:border-blue-500"
+            />
+            <p className="mt-1 text-[11px] text-neutral-400">
+              처음 가입이면 지금 정하는 새 비밀번호입니다 (6자 이상)
+            </p>
+          </div>
           <button
             onClick={signIn}
-            disabled={busy || !email || !password}
+            disabled={busy}
             className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-semibold py-2.5"
           >
             로그인
           </button>
           <button
             onClick={signUp}
-            disabled={busy || !email || !password}
+            disabled={busy}
             className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 text-sm py-2.5 hover:bg-neutral-50 dark:hover:bg-neutral-800"
           >
             처음이면: 계정 만들기
