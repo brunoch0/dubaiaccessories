@@ -1,0 +1,4 @@
+# Partner raw data & demo — contains customer/cost data, never commit
+data/
+demo/
+.DS_Store
