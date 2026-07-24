@@ -1,6 +1,6 @@
 {
   "version": "3.0",
-  "lastUpdated": "2026-07-23T08:44:17.735Z",
+  "lastUpdated": "2026-07-24T09:52:55.163Z",
   "activeFeatures": [
     "web",
     "login",
@@ -8,7 +8,8 @@
     "reset",
     "update",
     "scan",
-    "transfer"
+    "transfer",
+    "upload"
   ],
   "primaryFeature": "web",
   "features": {
@@ -21,9 +22,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-23T06:54:25.031Z",
-        "lastUpdated": "2026-07-23T08:02:18.414Z"
+        "lastUpdated": "2026-07-24T09:52:48.166Z"
       },
-      "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/page.tsx"
+      "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/components/Nav.tsx"
     },
     "login": {
       "phase": "do",
@@ -86,7 +87,7 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-23T07:33:17.395Z",
-        "lastUpdated": "2026-07-23T07:33:17.395Z"
+        "lastUpdated": "2026-07-24T09:52:55.163Z"
       },
       "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/scan/page.tsx"
     },
@@ -102,6 +103,19 @@
         "lastUpdated": "2026-07-23T07:33:47.325Z"
       },
       "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/transfer/page.tsx"
+    },
+    "upload": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-07-24T09:52:38.560Z",
+        "lastUpdated": "2026-07-24T09:52:38.560Z"
+      },
+      "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/upload/page.tsx"
     }
   },
   "pipeline": {
@@ -112,7 +126,7 @@
   "session": {
     "startedAt": "2026-07-23T04:04:40.962Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-07-23T08:44:17.735Z"
+    "lastActivity": "2026-07-24T09:52:55.163Z"
   },
   "history": [
     {
@@ -256,6 +270,30 @@
     {
       "timestamp": "2026-07-23T08:44:17.734Z",
       "feature": "login",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-24T09:52:38.561Z",
+      "feature": "upload",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-24T09:52:48.166Z",
+      "feature": "web",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-24T09:52:52.369Z",
+      "feature": "scan",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-07-24T09:52:55.163Z",
+      "feature": "scan",
       "phase": "do",
       "action": "updated"
     }

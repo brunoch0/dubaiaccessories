@@ -34,9 +34,20 @@ export default function ScanPage() {
   const [deductReason, setDeductReason] = useState("");
   const [countQty, setCountQty] = useState("");
 
+  const [syncMode, setSyncMode] = useState<"manual" | "api">("manual");
+
   useEffect(() => {
     const saved = localStorage.getItem("wos-store");
     if (saved === "MCC" || saved === "MOE") setStore(saved);
+    // API 동기화 모드면 수동 판매 입력을 숨김 (POS 자동 반영과 이중 차감 방지)
+    createClient()
+      .from("app_settings")
+      .select("value")
+      .eq("key", "sync_mode")
+      .single()
+      .then(({ data }) => {
+        if (data?.value === "api") setSyncMode("api");
+      });
     return () => controlsRef.current?.stop();
   }, []);
 
@@ -275,13 +286,15 @@ export default function ScanPage() {
 
             {/* 액션 */}
             <div className="space-y-2">
-              <button
-                onClick={() => addMovement("sale", 1)}
-                disabled={busy}
-                className="w-full rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-semibold py-3"
-              >
-                🛍️ 판매 1개 ({store})
-              </button>
+              {syncMode === "manual" && (
+                <button
+                  onClick={() => addMovement("sale", 1)}
+                  disabled={busy}
+                  className="w-full rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white font-semibold py-3"
+                >
+                  🛍️ 판매 1개 ({store})
+                </button>
+              )}
               <div className="flex gap-2">
                 <input
                   value={deductReason}
