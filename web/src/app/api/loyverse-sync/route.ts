@@ -4,10 +4,13 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 const LV_BASE = "https://api.loyverse.com/v1.0";
+const BACKFILL_FROM = "2026-07-01T00:00:00.000Z"; // 첫 동기화 시 이 시점부터 과거 영수증 백필
 
 type LvReceipt = {
   receipt_number: string;
   receipt_type: string; // SALE | REFUND
+  receipt_date?: string;
+  created_at?: string;
   store_id: string;
   line_items?: { sku?: string; quantity: number }[];
 };
@@ -22,7 +25,6 @@ async function lv(path: string, token: string) {
 }
 
 export async function POST() {
-  // 1) 로그인 세션 확인 (관리자/오너만)
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,100 +43,119 @@ export async function POST() {
   if (!prof || prof.role === "staff")
     return NextResponse.json({ error: "권한 없음" }, { status: 403 });
 
-  // 2) 환경변수 확인
   const token = process.env.LOYVERSE_API_TOKEN;
   const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!token)
-    return NextResponse.json(
-      { error: "LOYVERSE_API_TOKEN 미설정 — Vercel 환경변수에 추가 필요" },
-      { status: 400 }
-    );
-  if (!svcKey)
-    return NextResponse.json(
-      { error: "SUPABASE_SERVICE_ROLE_KEY 미설정 — Vercel 환경변수에 추가 필요" },
-      { status: 400 }
-    );
+  if (!token || !svcKey)
+    return NextResponse.json({ error: "환경변수 미설정" }, { status: 400 });
   const db = createAdminClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, svcKey);
 
   try {
-    // 3) 매장 매핑 (Loyverse store name → MCC/MOE/WH)
+    // 매장 맵 + SKU→상품ID 맵 (라인별 개별 조회 대신 일괄 로드)
     const storesRes = await lv("/stores", token);
     const storeMap: Record<string, string> = {};
     for (const s of storesRes.stores ?? []) {
       const n = (s.name as string).toLowerCase();
-      storeMap[s.id] =
-        n.includes("mcc") ? "MCC" : n.includes("moe") ? "MOE" : "WH";
+      storeMap[s.id] = n.includes("mcc") ? "MCC" : n.includes("moe") ? "MOE" : "WH";
+    }
+    const skuToId = new Map<string, string>();
+    for (let f = 0; ; f += 1000) {
+      const { data } = await db.from("products").select("id,sku").range(f, f + 999);
+      (data ?? []).forEach((p) => skuToId.set(p.sku, p.id));
+      if (!data || data.length < 1000) break;
     }
 
-    // 4) 마지막 동기화 시점 이후 영수증 수집
-    const { data: ls } = await db
-      .from("app_settings")
-      .select("value")
-      .eq("key", "loyverse_last_sync")
-      .maybeSingle();
-    const since = ls?.value ?? "2026-07-22T00:00:00.000Z"; // 시딩 기준일
+    // 기준 시점들
+    const getSetting = async (key: string) => {
+      const { data } = await db
+        .from("app_settings")
+        .select("value")
+        .eq("key", key)
+        .maybeSingle();
+      return data?.value as string | undefined;
+    };
+    const snapshotAt = (await getSetting("loyverse_snapshot_at")) ?? BACKFILL_FROM;
+    const { count: existingReceipts } = await db
+      .from("loyverse_receipts")
+      .select("*", { count: "exact", head: true });
+    // 첫 실행이면 과거까지 백필 (스냅샷 이전 건은 재고 미반영으로 기록만)
+    const since =
+      (existingReceipts ?? 0) === 0
+        ? BACKFILL_FROM
+        : ((await getSetting("loyverse_last_sync")) ?? snapshotAt);
 
     let cursor: string | undefined;
     let receipts = 0,
       lines = 0,
-      unknownSku = 0;
+      unknownSku = 0,
+      backfilled = 0;
 
     do {
       const qs = new URLSearchParams({ created_at_min: since, limit: "250" });
       if (cursor) qs.set("cursor", cursor);
       const page = await lv(`/receipts?${qs}`, token);
-
-      for (const rec of (page.receipts ?? []) as LvReceipt[]) {
-        // 멱등성: 이미 반영한 영수증은 건너뜀
-        const { error: dup } = await db
+      const recs = (page.receipts ?? []) as LvReceipt[];
+      if (recs.length > 0) {
+        const nums = recs.map((r) => r.receipt_number);
+        const { data: exist } = await db
           .from("loyverse_receipts")
-          .insert({ receipt_number: rec.receipt_number });
-        if (dup) continue;
+          .select("receipt_number")
+          .in("receipt_number", nums);
+        const existSet = new Set((exist ?? []).map((e) => e.receipt_number));
 
-        const store = storeMap[rec.store_id] ?? "MCC";
-        const isRefund = rec.receipt_type === "REFUND";
-        for (const li of rec.line_items ?? []) {
-          if (!li.sku) {
-            unknownSku++;
-            continue;
+        const movRows: Record<string, unknown>[] = [];
+        const recRows: { receipt_number: string }[] = [];
+        for (const rec of recs) {
+          if (existSet.has(rec.receipt_number)) continue;
+          recRows.push({ receipt_number: rec.receipt_number });
+          const store = storeMap[rec.store_id] ?? "MCC";
+          const isRefund = rec.receipt_type === "REFUND";
+          const when = rec.receipt_date ?? rec.created_at ?? new Date().toISOString();
+          const applyStock = when > snapshotAt; // 스냅샷 이전 판매는 재고에 이미 반영됨
+          if (!applyStock) backfilled++;
+          for (const li of rec.line_items ?? []) {
+            const pid = li.sku ? skuToId.get(li.sku) : undefined;
+            if (!pid) {
+              unknownSku++;
+              continue;
+            }
+            movRows.push({
+              product_id: pid,
+              store,
+              type: isRefund ? "return" : "sale",
+              qty: Math.abs(li.quantity),
+              reason: `Loyverse ${rec.receipt_number}`,
+              apply_stock: applyStock,
+              created_at: when, // 정산이 실제 판매 시각 기준이 되도록
+            });
+            lines++;
           }
-          // ponytail: 라인별 개별 조회 — 판매량 커지면 배치 조회로
-          const { data: p } = await db
-            .from("products")
-            .select("id")
-            .eq("sku", li.sku)
-            .maybeSingle();
-          if (!p) {
-            unknownSku++;
-            continue;
-          }
-          await db.from("movements").insert({
-            product_id: p.id,
-            store,
-            type: isRefund ? "return" : "sale",
-            qty: Math.abs(li.quantity),
-            reason: `Loyverse ${rec.receipt_number}`,
-          });
-          lines++;
+          receipts++;
         }
-        receipts++;
+        for (let i = 0; i < movRows.length; i += 500) {
+          const { error } = await db.from("movements").insert(movRows.slice(i, i + 500));
+          if (error) throw new Error("판매 기록 실패: " + error.message);
+        }
+        if (recRows.length > 0)
+          await db.from("loyverse_receipts").upsert(recRows, {
+            onConflict: "receipt_number",
+            ignoreDuplicates: true,
+          });
       }
       cursor = page.cursor;
     } while (cursor);
 
-    // 5) 상태 갱신: 마지막 동기화 시점 + API 모드 전환 + 활동 기록
     await db.from("app_settings").upsert([
       { key: "loyverse_last_sync", value: new Date().toISOString() },
       { key: "sync_mode", value: "api" },
     ]);
     await db.from("activity_log").insert({
       type: "system",
-      summary: `Loyverse 동기화: 영수증 ${receipts}건 → 판매 ${lines}건 반영`,
-      detail: { 영수증: receipts, 판매라인: lines, 미매칭SKU: unknownSku },
+      summary: `Loyverse 판매 동기화: 영수증 ${receipts}건 → 판매 ${lines}건 (백필 ${backfilled}건 포함)`,
+      detail: { 영수증: receipts, 판매라인: lines, 백필영수증: backfilled, 미매칭SKU: unknownSku },
       created_by: user.id,
     });
 
-    return NextResponse.json({ ok: true, receipts, lines, unknownSku });
+    return NextResponse.json({ ok: true, receipts, lines, unknownSku, backfilled });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },

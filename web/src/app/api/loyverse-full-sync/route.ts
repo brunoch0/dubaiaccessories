@@ -151,6 +151,7 @@ export async function POST() {
     // 5) 기준 시점 갱신 — 이후 판매 동기화는 지금부터
     await db.from("app_settings").upsert([
       { key: "loyverse_last_sync", value: new Date().toISOString() },
+      { key: "loyverse_snapshot_at", value: new Date().toISOString() },
       { key: "sync_mode", value: "api" },
     ]);
     await db.from("activity_log").insert({

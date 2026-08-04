@@ -37,6 +37,26 @@ function InventoryInner() {
   const [sort, setSort] = useState<{ k: keyof Product; d: 1 | -1 }>({ k: "sku", d: 1 });
   const [page, setPage] = useState(0);
   const [sel, setSel] = useState<Product | null>(null);
+  const [gallery, setGallery] = useState<string[]>([]);
+  const [mainImg, setMainImg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!sel) return;
+    setGallery(sel.image_url ? [sel.image_url] : []);
+    setMainImg(sel.image_url);
+    const supabase = createClient();
+    supabase
+      .from("product_images")
+      .select("url,is_primary,sort")
+      .eq("product_id", sel.id)
+      .order("sort")
+      .then(({ data }) => {
+        if (!data || data.length === 0) return;
+        const urls = data.map((d) => d.url);
+        setGallery(urls);
+        setMainImg(data.find((d) => d.is_primary)?.url ?? urls[0]);
+      });
+  }, [sel]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -258,7 +278,21 @@ function InventoryInner() {
                           ) : (
                             <span className="w-8 h-8 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-300 text-xs flex items-center justify-center">✦</span>
                           )}
-                          {r.name}
+                          <span>
+                            <span className="block leading-tight">{r.name}</span>
+                            {r.attr && (
+                              <span className="inline-flex gap-1 mt-0.5">
+                                {r.attr.keywords.slice(0, 4).map((k) => (
+                                  <span
+                                    key={k}
+                                    className="rounded-full bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-[10px] leading-4 px-1.5"
+                                  >
+                                    #{k}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                          </span>
                         </span>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-neutral-500">
@@ -331,9 +365,27 @@ function InventoryInner() {
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-md bg-white dark:bg-neutral-900 rounded-2xl p-6"
           >
-            {sel.image_url && (
+            {mainImg && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={sel.image_url} alt="" className="w-full h-44 object-cover rounded-xl mb-3 bg-neutral-100 dark:bg-neutral-800" />
+              <img src={mainImg} alt="" className="w-full h-44 object-cover rounded-xl mb-2 bg-neutral-100 dark:bg-neutral-800" />
+            )}
+            {gallery.length > 1 && (
+              <div className="flex gap-2 mb-3 overflow-x-auto">
+                {gallery.map((u) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={u}
+                    src={u}
+                    alt=""
+                    onClick={() => setMainImg(u)}
+                    className={`w-12 h-12 rounded-lg object-cover cursor-pointer border-2 ${
+                      mainImg === u
+                        ? "border-blue-500"
+                        : "border-transparent opacity-70"
+                    }`}
+                  />
+                ))}
+              </div>
             )}
             <h3 className="font-bold text-neutral-900 dark:text-white">{sel.name}</h3>
             <p className="text-xs text-neutral-500 mb-4">

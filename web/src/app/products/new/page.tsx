@@ -23,9 +23,69 @@ export default function NewProductPage() {
   const [cost, setCost] = useState("");
   const [qty, setQty] = useState({ MCC: "", MOE: "", WH: "" });
   const [vat, setVat] = useState(true);
-  const [photo, setPhoto] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<{ file: File; preview: string }[]>([]);
+  const [primaryIdx, setPrimaryIdx] = useState(0);
+  const [aiIdx, setAiIdx] = useState<number | null>(null); // 배경 선택 패널 열린 사진
+  const [aiBusy, setAiBusy] = useState(false);
   const [photoNote, setPhotoNote] = useState<string | null>(null);
+
+  const BGS: [string, string][] = [
+    ["화이트", "#ffffff"],
+    ["크림", "#faf6f0"],
+    ["라이트그레이", "#f3f4f6"],
+    ["핑크 그라디언트", "gradient"],
+    ["블랙", "#151515"],
+  ];
+
+  // AI 스튜디오 컷: 배경 제거(브라우저 AI) → 배경 합성 → 1200px 정방형 고품질 출력
+  async function studioCut(idx: number, bg: string) {
+    setAiBusy(true);
+    try {
+      const { removeBackground } = await import("@imgly/background-removal");
+      const cut = await removeBackground(photos[idx].file);
+      const img = await createImageBitmap(cut);
+      const S = 1200;
+      const canvas = document.createElement("canvas");
+      canvas.width = S;
+      canvas.height = S;
+      const ctx = canvas.getContext("2d")!;
+      if (bg === "gradient") {
+        const g = ctx.createLinearGradient(0, 0, S, S);
+        g.addColorStop(0, "#fdf2f8");
+        g.addColorStop(1, "#fbcfe8");
+        ctx.fillStyle = g;
+      } else ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, S, S);
+      const pad = S * 0.12;
+      const scale = Math.min((S - 2 * pad) / img.width, (S - 2 * pad) / img.height);
+      const w = img.width * scale,
+        h = img.height * scale;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+      await new Promise<void>((resolve) =>
+        canvas.toBlob(
+          (b) => {
+            if (b) {
+              const f = new File([b], `studio_${idx}.jpg`, { type: "image/jpeg" });
+              setPhotos((ps) =>
+                ps.map((p, i) =>
+                  i === idx ? { file: f, preview: URL.createObjectURL(b) } : p
+                )
+              );
+            }
+            resolve();
+          },
+          "image/jpeg",
+          0.92
+        )
+      );
+      setAiIdx(null);
+    } catch (e) {
+      setErr("AI 처리 실패: " + (e instanceof Error ? e.message : String(e)));
+    }
+    setAiBusy(false);
+  }
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -72,24 +132,40 @@ export default function NewProductPage() {
       const j = await res.json();
       if (!j.ok) setErr(j.error);
       else {
-        // 사진이 있으면 스토리지 업로드 → 시스템 이미지로 연결
-        if (photo && j.product_id) {
+        // 사진들 업로드 → product_images + 대표사진 연결
+        if (photos.length > 0 && j.product_id) {
           const supabase = createClient();
-          const path = `${j.sku}.jpg`;
-          const { error: upErr } = await supabase.storage
-            .from("product-images")
-            .upload(path, photo, { upsert: true, contentType: photo.type || "image/jpeg" });
-          if (upErr) setPhotoNote("사진 업로드 실패: " + upErr.message);
-          else {
+          let primaryUrl: string | null = null;
+          let okCount = 0;
+          for (let i = 0; i < photos.length; i++) {
+            const path = `${j.sku}/${i + 1}.jpg`;
+            const { error: upErr } = await supabase.storage
+              .from("product-images")
+              .upload(path, photos[i].file, {
+                upsert: true,
+                contentType: photos[i].file.type || "image/jpeg",
+              });
+            if (upErr) continue;
             const { data: pub } = supabase.storage
               .from("product-images")
               .getPublicUrl(path);
+            await supabase.from("product_images").insert({
+              product_id: j.product_id,
+              url: pub.publicUrl,
+              sort: i,
+              is_primary: i === primaryIdx,
+            });
+            if (i === primaryIdx) primaryUrl = pub.publicUrl;
+            okCount++;
+          }
+          if (primaryUrl)
             await supabase
               .from("products")
-              .update({ image_url: pub.publicUrl })
+              .update({ image_url: primaryUrl })
               .eq("id", j.product_id);
-            setPhotoNote("사진 등록 완료 (시스템·쇼핑몰용. POS 타일 이미지는 Loyverse 앱에서 별도 지정)");
-          }
+          setPhotoNote(
+            `사진 ${okCount}장 등록 완료 (대표 1장 지정). POS 타일 이미지는 Loyverse 앱에서 별도 지정.`
+          );
         }
         setDone({ sku: j.sku, barcode: j.barcode });
       }
@@ -105,8 +181,9 @@ export default function NewProductPage() {
     setPrice("");
     setCost("");
     setQty({ MCC: "", MOE: "", WH: "" });
-    setPhoto(null);
-    setPreview(null);
+    setPhotos([]);
+    setPrimaryIdx(0);
+    setAiIdx(null);
     setPhotoNote(null);
     setDone(null);
     setErr(null);
@@ -270,44 +347,108 @@ export default function NewProductPage() {
             </div>
 
             <div className={card}>
-              <span className={label}>상품 사진 (선택)</span>
+              <span className={label}>상품 사진 (여러 장 가능 · ⭐ = 대표사진)</span>
               <div className="flex items-center gap-3 mt-1">
                 <label className="rounded-lg border border-neutral-300 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 px-4 py-2.5 cursor-pointer hover:border-blue-500">
-                  📷 촬영 / 선택
+                  📷 촬영 / 선택 (여러 장)
                   <input
                     type="file"
                     accept="image/*"
-                    capture="environment"
+                    multiple
                     className="hidden"
                     onChange={(e) => {
-                      const f = e.target.files?.[0] ?? null;
-                      setPhoto(f);
-                      setPreview(f ? URL.createObjectURL(f) : null);
+                      const fs = Array.from(e.target.files ?? []);
+                      setPhotos((ps) => [
+                        ...ps,
+                        ...fs.map((f) => ({ file: f, preview: URL.createObjectURL(f) })),
+                      ]);
                     }}
                   />
                 </label>
-                {preview && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={preview}
-                    alt=""
-                    className="w-16 h-16 rounded-lg object-cover border border-neutral-200 dark:border-neutral-700"
-                  />
-                )}
-                {photo && (
-                  <button
-                    onClick={() => {
-                      setPhoto(null);
-                      setPreview(null);
-                    }}
-                    className="text-xs text-neutral-400 hover:text-red-500"
-                  >
-                    제거
-                  </button>
-                )}
               </div>
+
+              {photos.length > 0 && (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-3">
+                  {photos.map((p, i) => (
+                    <div key={i} className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={p.preview}
+                        alt=""
+                        className={`w-full aspect-square rounded-lg object-cover border-2 ${
+                          i === primaryIdx
+                            ? "border-amber-400"
+                            : "border-neutral-200 dark:border-neutral-700"
+                        }`}
+                      />
+                      <button
+                        onClick={() => setPrimaryIdx(i)}
+                        title="대표사진 지정"
+                        className={`absolute top-1 left-1 w-6 h-6 rounded-full text-xs flex items-center justify-center ${
+                          i === primaryIdx
+                            ? "bg-amber-400 text-white"
+                            : "bg-black/40 text-white/80"
+                        }`}
+                      >
+                        ⭐
+                      </button>
+                      <button
+                        onClick={() => {
+                          setPhotos((ps) => ps.filter((_, x) => x !== i));
+                          if (primaryIdx >= i && primaryIdx > 0)
+                            setPrimaryIdx(primaryIdx - 1);
+                          if (aiIdx === i) setAiIdx(null);
+                        }}
+                        className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/40 text-white text-xs"
+                      >
+                        ✕
+                      </button>
+                      <button
+                        onClick={() => setAiIdx(aiIdx === i ? null : i)}
+                        disabled={aiBusy}
+                        className="absolute bottom-1 left-1 right-1 rounded-md bg-black/55 backdrop-blur text-white text-[11px] py-1 disabled:opacity-40"
+                      >
+                        🎨 AI 스튜디오 컷
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {aiIdx !== null && (
+                <div className="mt-3 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/40 p-3">
+                  <p className="text-xs text-neutral-600 dark:text-neutral-300 mb-2">
+                    {aiBusy
+                      ? "AI가 배경을 제거하고 있습니다… (첫 실행은 모델 다운로드로 30초쯤 걸려요)"
+                      : "배경을 선택하면: 배경 제거 → 새 배경 합성 → 쇼핑몰용 1200px 정방형으로 만들어줍니다."}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {BGS.map(([bgName, v]) => (
+                      <button
+                        key={bgName}
+                        disabled={aiBusy}
+                        onClick={() => studioCut(aiIdx, v)}
+                        className="rounded-full border border-neutral-300 dark:border-neutral-600 text-xs px-3 py-1.5 text-neutral-700 dark:text-neutral-200 bg-white dark:bg-neutral-900 disabled:opacity-40"
+                      >
+                        <span
+                          className="inline-block w-3 h-3 rounded-full mr-1 align-middle border border-neutral-300"
+                          style={{
+                            background:
+                              v === "gradient"
+                                ? "linear-gradient(135deg,#fdf2f8,#fbcfe8)"
+                                : v,
+                          }}
+                        />
+                        {bgName}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <p className="mt-2 text-xs text-neutral-400">
-                시스템·쇼핑몰용 사진입니다. POS 타일 이미지는 Loyverse 앱에서 별도 지정.
+                시스템·쇼핑몰용 사진입니다 (여러 장 저장, 대표 1장). POS 타일 이미지는
+                Loyverse 앱에서 별도 지정.
               </p>
             </div>
 
