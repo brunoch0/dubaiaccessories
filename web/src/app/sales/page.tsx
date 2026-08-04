@@ -15,6 +15,7 @@ type Mov = {
   unit_price: number | null;
   line_total: number | null;
   discount: number | null;
+  employee: string | null;
 };
 type Prod = { id: string; sku: string; name: string; price: number | null; image_url: string | null };
 
@@ -33,12 +34,32 @@ type Receipt = {
   no: string;
   at: string;
   store: string;
+  employee: string | null;
   lines: Line[];
   gross: number;
   net: number;
   discount: number;
   estimated: boolean;
 };
+
+function dlCsv(name: string, rows: (string | number | null)[][]) {
+  const csv =
+    "﻿" +
+    rows
+      .map((r) =>
+        r
+          .map((v) => {
+            const s = v == null ? "" : String(v);
+            return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+          })
+          .join(",")
+      )
+      .join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = name;
+  a.click();
+}
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 const DUBAI = "Asia/Dubai";
@@ -111,7 +132,9 @@ export default function SalesPage() {
     for (let p = 0; ; p += 1000) {
       const { data, error } = await supabase
         .from("movements")
-        .select("id,product_id,store,type,qty,reason,created_at,unit_price,line_total,discount")
+        .select(
+          "id,product_id,store,type,qty,reason,created_at,unit_price,line_total,discount,employee"
+        )
         .in("type", ["sale", "return"])
         .gte("created_at", fromIso)
         .lte("created_at", toIso)
@@ -198,7 +221,8 @@ export default function SalesPage() {
     const c = calc(m);
     const r =
       recMap.get(no) ??
-      ({ no, at: m.created_at, store: m.store, lines: [], gross: 0, net: 0, discount: 0, estimated: false } as Receipt);
+      ({ no, at: m.created_at, store: m.store, employee: m.employee, lines: [], gross: 0, net: 0, discount: 0, estimated: false } as Receipt);
+    if (!r.employee && m.employee) r.employee = m.employee;
     r.lines.push({
       name: p?.name ?? "?",
       sku: p?.sku ?? "",
@@ -302,6 +326,7 @@ export default function SalesPage() {
 
         <div className="flex flex-wrap items-center gap-2 my-4 print:hidden">
           {preset("오늘", today, today)}
+          {preset("어제", isoDaysAgo(1), isoDaysAgo(1))}
           {preset("최근 7일", isoDaysAgo(6), today)}
           {preset("최근 14일", isoDaysAgo(13), today)}
           {preset("최근 30일", isoDaysAgo(29), today)}
@@ -388,7 +413,23 @@ export default function SalesPage() {
             )}
 
             <section className="mt-5">
-              <h2 className="text-sm font-semibold text-neutral-900 dark:text-white mb-2">일별 정산</h2>
+              <h2 className="text-sm font-semibold text-neutral-900 dark:text-white mb-2 flex items-center gap-2">
+                일별 정산
+                <button
+                  onClick={() =>
+                    dlCsv(`정산_일별_${from}_${to}.csv`, [
+                      ["날짜", "MCC 수량", "MCC 순매출", "MOE 수량", "MOE 순매출", "할인", "합계 순매출"],
+                      ...daysDesc.map(([d, e]) => [
+                        d, e.qM, Math.round(e.MCC), e.qO, Math.round(e.MOE),
+                        Math.round(e.disc), Math.round(e.MCC + e.MOE),
+                      ]),
+                    ])
+                  }
+                  className="print:hidden text-xs rounded-md border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-neutral-500 hover:text-blue-600 hover:border-blue-500"
+                >
+                  ⬇ CSV
+                </button>
+              </h2>
               <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800">
                 <table className="w-full text-sm bg-white dark:bg-neutral-950">
                   <thead>
@@ -427,9 +468,91 @@ export default function SalesPage() {
               </div>
             </section>
 
+            {(() => {
+              const byEmp = new Map<string, { recs: Set<string>; qty: number; net: number; disc: number }>();
+              rows.forEach((m) => {
+                const key = m.employee ?? (m.reason?.startsWith("Loyverse ") ? "(미지정)" : "수동 입력");
+                const e = byEmp.get(key) ?? { recs: new Set<string>(), qty: 0, net: 0, disc: 0 };
+                const c = calc(m);
+                if (m.reason?.startsWith("Loyverse ")) e.recs.add(m.reason);
+                e.qty += c.sign * m.qty;
+                e.net += c.net;
+                e.disc += c.discount;
+                byEmp.set(key, e);
+              });
+              const emps = [...byEmp.entries()].sort((a, b) => b[1].net - a[1].net);
+              return emps.length === 0 ? null : (
+                <section className="mt-5">
+                  <h2 className="text-sm font-semibold text-neutral-900 dark:text-white mb-2">
+                    직원별 정산
+                    <Help text="영수증에 기록된 결제 담당 직원 기준입니다. 인센티브·목표 관리의 기초 데이터예요." />
+                  </h2>
+                  <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800">
+                    <table className="w-full text-sm bg-white dark:bg-neutral-950">
+                      <thead>
+                        <tr className="bg-neutral-100 dark:bg-neutral-900 text-xs text-neutral-500">
+                          <th className="px-3 py-2 text-left">직원</th>
+                          <th className="px-3 py-2 text-right">영수증</th>
+                          <th className="px-3 py-2 text-right">판매 수량</th>
+                          <th className="px-3 py-2 text-right">할인</th>
+                          <th className="px-3 py-2 text-right">순매출</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {emps.map(([name, e]) => (
+                          <tr key={name} className="border-t border-neutral-100 dark:border-neutral-900">
+                            <td className="px-3 py-2">{name}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{fmt(e.recs.size)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{fmt(e.qty)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-amber-600">
+                              {e.disc > 0.001 ? fmt(Math.round(e.disc)) : "—"}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt(Math.round(e.net))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              );
+            })()}
+
             <section className="mt-5">
-              <h2 className="text-sm font-semibold text-neutral-900 dark:text-white mb-2">
-                영수증 ({fmt(receipts.length)}건{discountedReceipts.length > 0 ? ` · 할인 ${discountedReceipts.length}건` : ""}) — 행 클릭 = 상세
+              <h2 className="text-sm font-semibold text-neutral-900 dark:text-white mb-2 flex items-center gap-2 flex-wrap">
+                <span>
+                  영수증 ({fmt(receipts.length)}건{discountedReceipts.length > 0 ? ` · 할인 ${discountedReceipts.length}건` : ""}) — 행 클릭 = 상세
+                </span>
+                <button
+                  onClick={() =>
+                    dlCsv(`영수증_내역_${from}_${to}.csv`, [
+                      ["영수증번호", "일시", "매장", "직원", "품목수", "정가합계", "할인", "실결제"],
+                      ...receipts.map((r) => [
+                        r.no, timeOf(r.at), r.store, r.employee ?? "", r.lines.length,
+                        Math.round(r.gross), Math.round(r.discount), Math.round(r.net),
+                      ]),
+                    ])
+                  }
+                  className="print:hidden text-xs rounded-md border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-neutral-500 hover:text-blue-600 hover:border-blue-500"
+                >
+                  ⬇ 내역 CSV
+                </button>
+                <button
+                  onClick={() =>
+                    dlCsv(`영수증_상세_${from}_${to}.csv`, [
+                      ["영수증번호", "일시", "매장", "직원", "SKU", "상품명", "구분", "수량", "정가합계", "할인", "실결제"],
+                      ...receipts.flatMap((r) =>
+                        r.lines.map((l) => [
+                          r.no, timeOf(r.at), r.store, r.employee ?? "", l.sku, l.name,
+                          l.isReturn ? "반품" : "판매", l.qty,
+                          Math.round(l.gross), Math.round(l.discount), Math.round(l.net),
+                        ])
+                      ),
+                    ])
+                  }
+                  className="print:hidden text-xs rounded-md border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-neutral-500 hover:text-blue-600 hover:border-blue-500"
+                >
+                  ⬇ 상세 CSV
+                </button>
               </h2>
               <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800 max-h-96 overflow-y-auto">
                 <table className="w-full text-sm bg-white dark:bg-neutral-950">
@@ -439,6 +562,7 @@ export default function SalesPage() {
                       <th className="px-3 py-2 text-left">영수증</th>
                       <th className="px-3 py-2 text-left">시간</th>
                       <th className="px-3 py-2">매장</th>
+                      <th className="px-3 py-2 text-left">직원</th>
                       <th className="px-3 py-2 text-right">할인</th>
                       <th className="px-3 py-2 text-right">실결제</th>
                     </tr>
@@ -466,6 +590,7 @@ export default function SalesPage() {
                         <td className="px-3 py-1.5 tabular-nums text-neutral-500">{r.no}</td>
                         <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500">{timeOf(r.at)}</td>
                         <td className="px-3 py-1.5 text-center">{r.store}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500">{r.employee ?? "—"}</td>
                         <td className="px-3 py-1.5 text-right">
                           {r.discount > 0.001 ? (
                             <span className="rounded-full bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 text-xs px-2 py-0.5">
@@ -496,12 +621,31 @@ export default function SalesPage() {
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="font-bold text-neutral-900 dark:text-white">영수증 {sel.no}</h3>
-                <p className="text-xs text-neutral-500 mb-4">{timeOf(sel.at)} · {sel.store} 매장 · Whisper of Spring</p>
+                <p className="text-xs text-neutral-500 mb-4">
+                  {timeOf(sel.at)} · {sel.store} 매장{sel.employee ? ` · 담당 ${sel.employee}` : ""} · Whisper of Spring
+                </p>
               </div>
-              <button onClick={() => window.print()}
-                className="print:hidden rounded-lg border border-neutral-300 dark:border-neutral-700 text-xs text-neutral-600 dark:text-neutral-300 px-3 py-1.5">
-                🖨️ 출력
-              </button>
+              <div className="flex gap-1.5 print:hidden">
+                <button
+                  onClick={() =>
+                    dlCsv(`영수증_${sel.no}.csv`, [
+                      ["영수증번호", "일시", "매장", "직원", "SKU", "상품명", "구분", "수량", "정가합계", "할인", "실결제"],
+                      ...sel.lines.map((l) => [
+                        sel.no, timeOf(sel.at), sel.store, sel.employee ?? "", l.sku, l.name,
+                        l.isReturn ? "반품" : "판매", l.qty,
+                        Math.round(l.gross), Math.round(l.discount), Math.round(l.net),
+                      ]),
+                    ])
+                  }
+                  className="rounded-lg border border-neutral-300 dark:border-neutral-700 text-xs text-neutral-600 dark:text-neutral-300 px-3 py-1.5"
+                >
+                  ⬇ CSV
+                </button>
+                <button onClick={() => window.print()}
+                  className="rounded-lg border border-neutral-300 dark:border-neutral-700 text-xs text-neutral-600 dark:text-neutral-300 px-3 py-1.5">
+                  🖨️ 출력
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
               {sel.lines.map((l, i) => (

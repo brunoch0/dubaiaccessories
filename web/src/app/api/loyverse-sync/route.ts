@@ -21,6 +21,7 @@ type LvReceipt = {
   receipt_date?: string;
   created_at?: string;
   store_id: string;
+  employee_id?: string;
   line_items?: LvLine[];
 };
 
@@ -66,6 +67,19 @@ export async function POST() {
       const n = (s.name as string).toLowerCase();
       storeMap[s.id] = n.includes("mcc") ? "MCC" : n.includes("moe") ? "MOE" : "WH";
     }
+    // 직원 맵 (결제 담당자 표시용)
+    const empMap: Record<string, string> = {};
+    try {
+      let ec: string | undefined;
+      do {
+        const ep = await lv(`/employees?limit=250${ec ? `&cursor=${ec}` : ""}`, token);
+        for (const e of ep.employees ?? []) empMap[e.id] = e.name;
+        ec = ep.cursor;
+      } while (ec);
+    } catch {
+      /* 직원 조회 실패해도 동기화는 진행 */
+    }
+
     const skuToId = new Map<string, string>();
     for (let f = 0; ; f += 1000) {
       const { data } = await db.from("products").select("id,sku").range(f, f + 999);
@@ -141,6 +155,7 @@ export async function POST() {
               reason: `Loyverse ${rec.receipt_number}`,
               apply_stock: applyStock,
               created_at: when, // 정산이 실제 판매 시각 기준이 되도록
+              employee: (rec.employee_id && empMap[rec.employee_id]) || null,
               unit_price: li.price ?? null,
               line_total: net,
               discount:
