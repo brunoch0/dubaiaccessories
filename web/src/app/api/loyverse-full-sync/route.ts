@@ -76,6 +76,7 @@ export async function POST() {
       price: number | null;
       cost: number | null;
       barcode: string;
+      image_url: string | null;
     };
     const rows: Row[] = [];
     const variantToSku: Record<string, string> = {};
@@ -93,6 +94,7 @@ export async function POST() {
           price: storesArr.find((s) => s.price != null)?.price ?? (v.default_price as number | null),
           cost: (v.cost as number | null) ?? null,
           barcode: ((v.barcode as string) ?? "").trim(),
+          image_url: (item.image_url as string | null) ?? null,
         });
       }
     }
@@ -107,6 +109,7 @@ export async function POST() {
           category: r.category,
           price: r.price,
           barcode: r.barcode,
+          image_url: r.image_url,
         })),
         { onConflict: "sku" }
       );

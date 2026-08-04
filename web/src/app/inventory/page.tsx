@@ -8,6 +8,7 @@ import { createClient, fetchAll } from "@/lib/supabase";
 type Product = {
   id: string;
   sku: string;
+  image_url: string | null;
   name: string;
   category: string;
   flag: string | null;
@@ -48,7 +49,8 @@ function InventoryInner() {
           flag: string | null;
           price: number | null;
           barcode: string | null;
-        }>(supabase, "products", "id,sku,name,category,flag,price,barcode"),
+          image_url: string | null;
+        }>(supabase, "products", "id,sku,name,category,flag,price,barcode,image_url"),
         fetchAll<{ product_id: string; store: string; qty: number }>(
           supabase,
           "inventory",
@@ -240,7 +242,15 @@ function InventoryInner() {
                         {r.sku}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-neutral-900 dark:text-white">
-                        {r.name}
+                        <span className="inline-flex items-center gap-2">
+                          {r.image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={r.image_url} alt="" loading="lazy" className="w-8 h-8 rounded-md object-cover bg-neutral-100 dark:bg-neutral-800" />
+                          ) : (
+                            <span className="w-8 h-8 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-300 text-xs flex items-center justify-center">✦</span>
+                          )}
+                          {r.name}
+                        </span>
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-neutral-500">
                         {r.category}
@@ -312,6 +322,10 @@ function InventoryInner() {
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-md bg-white dark:bg-neutral-900 rounded-2xl p-6"
           >
+            {sel.image_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={sel.image_url} alt="" className="w-full h-44 object-cover rounded-xl mb-3 bg-neutral-100 dark:bg-neutral-800" />
+            )}
             <h3 className="font-bold text-neutral-900 dark:text-white">{sel.name}</h3>
             <p className="text-xs text-neutral-500 mb-4">
               {sel.category} · SKU {sel.sku} · 바코드 {sel.barcode || "—"}

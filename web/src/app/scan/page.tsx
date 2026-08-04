@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase";
 type Product = {
   id: string;
   sku: string;
+  image_url: string | null;
   name: string;
   category: string;
   price: number | null;
@@ -95,7 +96,7 @@ export default function ScanPage() {
     const c = code.trim();
     const { data } = await supabase
       .from("products")
-      .select("id,sku,name,category,price,barcode")
+      .select("id,sku,name,category,price,barcode,image_url")
       .or(`barcode.eq.${c},sku.eq.${c}`)
       .limit(1);
     if (!data || data.length === 0) {
@@ -249,6 +250,10 @@ export default function ScanPage() {
         {/* 상품 카드 */}
         {product && (
           <div className="mt-4 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5">
+            {product.image_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={product.image_url} alt="" className="w-full h-40 object-cover rounded-xl mb-3 bg-neutral-100 dark:bg-neutral-800" />
+            )}
             <h2 className="font-bold text-neutral-900 dark:text-white">{product.name}</h2>
             <p className="text-xs text-neutral-500 mb-3">
               {product.category} · SKU {product.sku}
