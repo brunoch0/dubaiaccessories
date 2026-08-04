@@ -22,6 +22,7 @@ type LvReceipt = {
   created_at?: string;
   store_id: string;
   employee_id?: string;
+  customer_id?: string;
   line_items?: LvLine[];
 };
 
@@ -80,6 +81,19 @@ export async function POST() {
       /* 직원 조회 실패해도 동기화는 진행 */
     }
 
+    // 고객 맵 (영수증 고객명 — admin 전용 테이블에 저장)
+    const custMap: Record<string, string> = {};
+    try {
+      let cc: string | undefined;
+      do {
+        const cp = await lv(`/customers?limit=250${cc ? `&cursor=${cc}` : ""}`, token);
+        for (const c of cp.customers ?? []) custMap[c.id] = c.name;
+        cc = cp.cursor;
+      } while (cc);
+    } catch {
+      /* 고객 조회 실패해도 동기화는 진행 */
+    }
+
     const skuToId = new Map<string, string>();
     for (let f = 0; ; f += 1000) {
       const { data } = await db.from("products").select("id,sku").range(f, f + 999);
@@ -129,10 +143,13 @@ export async function POST() {
         const existSet = new Set((exist ?? []).map((e) => e.receipt_number));
 
         const movRows: Record<string, unknown>[] = [];
-        const recRows: { receipt_number: string }[] = [];
+        const recRows: { receipt_number: string; customer: string | null }[] = [];
         for (const rec of recs) {
           if (existSet.has(rec.receipt_number)) continue;
-          recRows.push({ receipt_number: rec.receipt_number });
+          recRows.push({
+            receipt_number: rec.receipt_number,
+            customer: (rec.customer_id && custMap[rec.customer_id]) || null,
+          });
           const store = storeMap[rec.store_id] ?? "MCC";
           const isRefund = rec.receipt_type === "REFUND";
           const when = rec.receipt_date ?? rec.created_at ?? new Date().toISOString();

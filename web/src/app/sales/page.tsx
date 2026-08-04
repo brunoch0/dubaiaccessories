@@ -1,8 +1,172 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import Nav from "@/components/Nav";
 import { createClient, fetchAll } from "@/lib/supabase";
+
+// ---- 재사용 테이블: 컬럼 드래그 순서변경(저장) + 헤더 클릭 정렬 + 검색 필터
+type Col<T> = {
+  key: string;
+  label: string;
+  right?: boolean;
+  value?: (r: T) => string | number | null; // 정렬·검색·기본표시용
+  render?: (r: T) => ReactNode;
+};
+
+function DataTable<T>({
+  id,
+  cols,
+  rows,
+  defaultSortKey,
+  defaultDesc = false,
+  onRowClick,
+  rowKey,
+  maxH,
+  emptyText = "결과가 없습니다.",
+}: {
+  id: string;
+  cols: Col<T>[];
+  rows: T[];
+  defaultSortKey?: string;
+  defaultDesc?: boolean;
+  onRowClick?: (r: T) => void;
+  rowKey: (r: T) => string;
+  maxH?: string;
+  emptyText?: string;
+}) {
+  const storageKey = `wos-cols-${id}`;
+  const [order, setOrder] = useState<string[]>(() => cols.map((c) => c.key));
+  const [sort, setSort] = useState<{ k: string; d: 1 | -1 } | null>(
+    defaultSortKey ? { k: defaultSortKey, d: defaultDesc ? -1 : 1 } : null
+  );
+  const [q, setQ] = useState("");
+  const dragIdx = useRef<number | null>(null);
+
+  useEffect(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem(storageKey) ?? "null");
+      if (
+        Array.isArray(s) &&
+        s.length === cols.length &&
+        cols.every((c) => s.includes(c.key))
+      )
+        setOrder(s);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
+
+  const ocols = order
+    .map((k) => cols.find((c) => c.key === k))
+    .filter(Boolean) as Col<T>[];
+
+  let out = rows;
+  if (q.trim()) {
+    const qq = q.toLowerCase();
+    out = rows.filter((r) =>
+      cols.some((c) => String(c.value?.(r) ?? "").toLowerCase().includes(qq))
+    );
+  }
+  if (sort) {
+    const c = cols.find((x) => x.key === sort.k);
+    if (c?.value)
+      out = [...out].sort((a, b) => {
+        const x = c.value!(a),
+          y = c.value!(b);
+        if (x == null) return 1;
+        if (y == null) return -1;
+        return (
+          (typeof x === "string"
+            ? String(x).localeCompare(String(y))
+            : (x as number) - (y as number)) * sort.d
+        );
+      });
+  }
+
+  return (
+    <div>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="🔎 이 표에서 검색…"
+        className="print:hidden mb-2 w-56 rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-1.5 text-xs text-neutral-900 dark:text-white outline-none focus:border-blue-500"
+      />
+      <div
+        className={`overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800 ${
+          maxH ? "overflow-y-auto" : ""
+        }`}
+        style={maxH ? { maxHeight: maxH } : undefined}
+      >
+        <table className="w-full text-sm bg-white dark:bg-neutral-950">
+          <thead>
+            <tr className="bg-neutral-100 dark:bg-neutral-900 text-xs text-neutral-500 sticky top-0 z-10">
+              {ocols.map((c, i) => (
+                <th
+                  key={c.key}
+                  draggable
+                  onDragStart={() => (dragIdx.current = i)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => {
+                    if (dragIdx.current === null || dragIdx.current === i) return;
+                    const next = [...order];
+                    const [moved] = next.splice(dragIdx.current, 1);
+                    next.splice(i, 0, moved);
+                    setOrder(next);
+                    localStorage.setItem(storageKey, JSON.stringify(next));
+                    dragIdx.current = null;
+                  }}
+                  onClick={() =>
+                    c.value &&
+                    setSort((s) =>
+                      s?.k === c.key ? { k: c.key, d: s.d === 1 ? -1 : 1 } : { k: c.key, d: 1 }
+                    )
+                  }
+                  title="클릭=정렬 · 드래그=순서 변경"
+                  className={`px-3 py-2 whitespace-nowrap select-none cursor-pointer ${
+                    c.right ? "text-right" : "text-left"
+                  }`}
+                >
+                  {c.label} {sort?.k === c.key ? (sort.d === 1 ? "▲" : "▼") : ""}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {out.length === 0 ? (
+              <tr>
+                <td colSpan={ocols.length} className="px-3 py-6 text-center text-neutral-400">
+                  {emptyText}
+                </td>
+              </tr>
+            ) : (
+              out.map((r) => (
+                <tr
+                  key={rowKey(r)}
+                  onClick={() => onRowClick?.(r)}
+                  className={`border-t border-neutral-100 dark:border-neutral-900 ${
+                    onRowClick
+                      ? "hover:bg-blue-50/60 dark:hover:bg-blue-950/30 cursor-pointer"
+                      : ""
+                  }`}
+                >
+                  {ocols.map((c) => (
+                    <td
+                      key={c.key}
+                      className={`px-3 py-1.5 whitespace-nowrap tabular-nums ${
+                        c.right ? "text-right" : "text-left"
+                      }`}
+                    >
+                      {c.render ? c.render(r) : c.value?.(r) ?? ""}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 type Mov = {
   id: number;
@@ -35,6 +199,7 @@ type Receipt = {
   at: string;
   store: string;
   employee: string | null;
+  customer: string | null;
   lines: Line[];
   gross: number;
   net: number;
@@ -108,6 +273,7 @@ export default function SalesPage() {
   const [to, setTo] = useState(isoDaysAgo(0));
   const [storeF, setStoreF] = useState<"" | "MCC" | "MOE">("");
   const [movs, setMovs] = useState<Mov[] | null>(null);
+  const [recCust, setRecCust] = useState<Map<string, string>>(new Map());
   const [prods, setProds] = useState<Map<string, Prod>>(new Map());
   const [sel, setSel] = useState<Receipt | null>(null);
 
@@ -121,6 +287,19 @@ export default function SalesPage() {
     fetchAll<Prod>(supabase, "products", "id,sku,name,price,image_url").then((p) =>
       setProds(new Map(p.map((x) => [x.id, x])))
     );
+    (async () => {
+      const m = new Map<string, string>();
+      for (let f = 0; ; f += 1000) {
+        const { data, error } = await supabase
+          .from("loyverse_receipts")
+          .select("receipt_number,customer")
+          .range(f, f + 999);
+        if (error || !data) break;
+        data.forEach((r) => r.customer && m.set(r.receipt_number, r.customer));
+        if (data.length < 1000) break;
+      }
+      setRecCust(m);
+    })();
   }, []);
 
   const load = useCallback(async () => {
@@ -221,7 +400,7 @@ export default function SalesPage() {
     const c = calc(m);
     const r =
       recMap.get(no) ??
-      ({ no, at: m.created_at, store: m.store, employee: m.employee, lines: [], gross: 0, net: 0, discount: 0, estimated: false } as Receipt);
+      ({ no, at: m.created_at, store: m.store, employee: m.employee, customer: recCust.get(no) ?? null, lines: [], gross: 0, net: 0, discount: 0, estimated: false } as Receipt);
     if (!r.employee && m.employee) r.employee = m.employee;
     r.lines.push({
       name: p?.name ?? "?",
@@ -430,42 +609,23 @@ export default function SalesPage() {
                   ⬇ CSV
                 </button>
               </h2>
-              <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800">
-                <table className="w-full text-sm bg-white dark:bg-neutral-950">
-                  <thead>
-                    <tr className="bg-neutral-100 dark:bg-neutral-900 text-xs text-neutral-500">
-                      <th className="px-3 py-2 text-left">날짜</th>
-                      <th className="px-3 py-2 text-right">MCC 수량</th>
-                      <th className="px-3 py-2 text-right">MCC 순매출</th>
-                      <th className="px-3 py-2 text-right">MOE 수량</th>
-                      <th className="px-3 py-2 text-right">MOE 순매출</th>
-                      <th className="px-3 py-2 text-right">할인</th>
-                      <th className="px-3 py-2 text-right">합계 순매출</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {daysDesc.length === 0 ? (
-                      <tr><td colSpan={7} className="px-3 py-6 text-center text-neutral-400">
-                        이 기간에 판매 기록이 없습니다. (업로드 탭에서 ② 판매 동기화 실행)
-                      </td></tr>
-                    ) : (
-                      daysDesc.map(([d, e]) => (
-                        <tr key={d} className="border-t border-neutral-100 dark:border-neutral-900">
-                          <td className="px-3 py-2">{d}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{fmt(e.qM)}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{fmt(Math.round(e.MCC))}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{fmt(e.qO)}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{fmt(Math.round(e.MOE))}</td>
-                          <td className="px-3 py-2 text-right tabular-nums text-amber-600">
-                            {e.disc > 0.001 ? fmt(Math.round(e.disc)) : "—"}
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt(Math.round(e.MCC + e.MOE))}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                id="daily"
+                rows={daysDesc.map(([d, e]) => ({ d, ...e }))}
+                rowKey={(r) => r.d}
+                defaultSortKey="d"
+                defaultDesc
+                emptyText="이 기간에 판매 기록이 없습니다. (업로드 탭에서 ② 판매 동기화 실행)"
+                cols={[
+                  { key: "d", label: "날짜", value: (r) => r.d },
+                  { key: "qM", label: "MCC 수량", right: true, value: (r) => r.qM, render: (r) => fmt(r.qM) },
+                  { key: "MCC", label: "MCC 순매출", right: true, value: (r) => r.MCC, render: (r) => fmt(Math.round(r.MCC)) },
+                  { key: "qO", label: "MOE 수량", right: true, value: (r) => r.qO, render: (r) => fmt(r.qO) },
+                  { key: "MOE", label: "MOE 순매출", right: true, value: (r) => r.MOE, render: (r) => fmt(Math.round(r.MOE)) },
+                  { key: "disc", label: "할인", right: true, value: (r) => r.disc, render: (r) => (r.disc > 0.001 ? <span className="text-amber-600">{fmt(Math.round(r.disc))}</span> : "—") },
+                  { key: "total", label: "합계 순매출", right: true, value: (r) => r.MCC + r.MOE, render: (r) => <b>{fmt(Math.round(r.MCC + r.MOE))}</b> },
+                ]}
+              />
             </section>
 
             {(() => {
@@ -487,32 +647,20 @@ export default function SalesPage() {
                     직원별 정산
                     <Help text="영수증에 기록된 결제 담당 직원 기준입니다. 인센티브·목표 관리의 기초 데이터예요." />
                   </h2>
-                  <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800">
-                    <table className="w-full text-sm bg-white dark:bg-neutral-950">
-                      <thead>
-                        <tr className="bg-neutral-100 dark:bg-neutral-900 text-xs text-neutral-500">
-                          <th className="px-3 py-2 text-left">직원</th>
-                          <th className="px-3 py-2 text-right">영수증</th>
-                          <th className="px-3 py-2 text-right">판매 수량</th>
-                          <th className="px-3 py-2 text-right">할인</th>
-                          <th className="px-3 py-2 text-right">순매출</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {emps.map(([name, e]) => (
-                          <tr key={name} className="border-t border-neutral-100 dark:border-neutral-900">
-                            <td className="px-3 py-2">{name}</td>
-                            <td className="px-3 py-2 text-right tabular-nums">{fmt(e.recs.size)}</td>
-                            <td className="px-3 py-2 text-right tabular-nums">{fmt(e.qty)}</td>
-                            <td className="px-3 py-2 text-right tabular-nums text-amber-600">
-                              {e.disc > 0.001 ? fmt(Math.round(e.disc)) : "—"}
-                            </td>
-                            <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt(Math.round(e.net))}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DataTable
+                    id="employees"
+                    rows={emps.map(([name, e]) => ({ name, recs: e.recs.size, qty: e.qty, net: e.net, disc: e.disc }))}
+                    rowKey={(r) => r.name}
+                    defaultSortKey="net"
+                    defaultDesc
+                    cols={[
+                      { key: "name", label: "직원", value: (r) => r.name },
+                      { key: "recs", label: "영수증", right: true, value: (r) => r.recs, render: (r) => fmt(r.recs) },
+                      { key: "qty", label: "판매 수량", right: true, value: (r) => r.qty, render: (r) => fmt(r.qty) },
+                      { key: "disc", label: "할인", right: true, value: (r) => r.disc, render: (r) => (r.disc > 0.001 ? <span className="text-amber-600">{fmt(Math.round(r.disc))}</span> : "—") },
+                      { key: "net", label: "순매출", right: true, value: (r) => r.net, render: (r) => <b>{fmt(Math.round(r.net))}</b> },
+                    ]}
+                  />
                 </section>
               );
             })()}
@@ -525,9 +673,9 @@ export default function SalesPage() {
                 <button
                   onClick={() =>
                     dlCsv(`영수증_내역_${from}_${to}.csv`, [
-                      ["영수증번호", "일시", "매장", "직원", "품목수", "정가합계", "할인", "실결제"],
+                      ["영수증번호", "일시", "매장", "직원", "고객", "품목수", "정가합계", "할인", "실결제"],
                       ...receipts.map((r) => [
-                        r.no, timeOf(r.at), r.store, r.employee ?? "", r.lines.length,
+                        r.no, timeOf(r.at), r.store, r.employee ?? "", r.customer ?? "", r.lines.length,
                         Math.round(r.gross), Math.round(r.discount), Math.round(r.net),
                       ]),
                     ])
@@ -539,10 +687,10 @@ export default function SalesPage() {
                 <button
                   onClick={() =>
                     dlCsv(`영수증_상세_${from}_${to}.csv`, [
-                      ["영수증번호", "일시", "매장", "직원", "SKU", "상품명", "구분", "수량", "정가합계", "할인", "실결제"],
+                      ["영수증번호", "일시", "매장", "직원", "고객", "SKU", "상품명", "구분", "수량", "정가합계", "할인", "실결제"],
                       ...receipts.flatMap((r) =>
                         r.lines.map((l) => [
-                          r.no, timeOf(r.at), r.store, r.employee ?? "", l.sku, l.name,
+                          r.no, timeOf(r.at), r.store, r.employee ?? "", r.customer ?? "", l.sku, l.name,
                           l.isReturn ? "반품" : "판매", l.qty,
                           Math.round(l.gross), Math.round(l.discount), Math.round(l.net),
                         ])
@@ -554,60 +702,52 @@ export default function SalesPage() {
                   ⬇ 상세 CSV
                 </button>
               </h2>
-              <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800 max-h-96 overflow-y-auto">
-                <table className="w-full text-sm bg-white dark:bg-neutral-950">
-                  <thead>
-                    <tr className="bg-neutral-100 dark:bg-neutral-900 text-xs text-neutral-500 sticky top-0">
-                      <th className="px-3 py-2 text-left">상품</th>
-                      <th className="px-3 py-2 text-left">영수증</th>
-                      <th className="px-3 py-2 text-left">시간</th>
-                      <th className="px-3 py-2">매장</th>
-                      <th className="px-3 py-2 text-left">직원</th>
-                      <th className="px-3 py-2 text-right">할인</th>
-                      <th className="px-3 py-2 text-right">실결제</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {receipts.map((r) => (
-                      <tr key={r.no} onClick={() => setSel(r)}
-                        className="border-t border-neutral-100 dark:border-neutral-900 hover:bg-blue-50/60 dark:hover:bg-blue-950/30 cursor-pointer">
-                        <td className="px-3 py-1.5">
-                          <span className="flex items-center gap-1.5">
-                            {r.lines.slice(0, 3).map((l, i) =>
-                              l.image ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img key={i} src={l.image} alt="" loading="lazy"
-                                  className="w-8 h-8 rounded-md object-cover bg-neutral-100 dark:bg-neutral-800" />
-                              ) : (
-                                <span key={i} className="w-8 h-8 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-300 text-xs flex items-center justify-center">✦</span>
-                              )
-                            )}
-                            {r.lines.length > 3 && (
-                              <span className="text-xs text-neutral-400">+{r.lines.length - 3}</span>
-                            )}
-                          </span>
-                        </td>
-                        <td className="px-3 py-1.5 tabular-nums text-neutral-500">{r.no}</td>
-                        <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500">{timeOf(r.at)}</td>
-                        <td className="px-3 py-1.5 text-center">{r.store}</td>
-                        <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500">{r.employee ?? "—"}</td>
-                        <td className="px-3 py-1.5 text-right">
-                          {r.discount > 0.001 ? (
-                            <span className="rounded-full bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 text-xs px-2 py-0.5">
-                              -{fmt(Math.round(r.discount))}
-                            </span>
+              <DataTable
+                id="receipts"
+                rows={receipts}
+                rowKey={(r) => r.no}
+                defaultSortKey="at"
+                defaultDesc
+                onRowClick={(r) => setSel(r)}
+                maxH="24rem"
+                cols={[
+                  {
+                    key: "items", label: "상품",
+                    render: (r) => (
+                      <span className="flex items-center gap-1.5">
+                        {r.lines.slice(0, 3).map((l, i) =>
+                          l.image ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img key={i} src={l.image} alt="" loading="lazy" className="w-8 h-8 rounded-md object-cover bg-neutral-100 dark:bg-neutral-800" />
                           ) : (
-                            <span className="text-neutral-300">—</span>
-                          )}
-                        </td>
-                        <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${r.net < 0 ? "text-red-600" : ""}`}>
-                          {fmt(Math.round(r.net))}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                            <span key={i} className="w-8 h-8 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-300 text-xs flex items-center justify-center">✦</span>
+                          )
+                        )}
+                        {r.lines.length > 3 && <span className="text-xs text-neutral-400">+{r.lines.length - 3}</span>}
+                      </span>
+                    ),
+                    value: (r) => r.lines.map((l) => l.name + " " + l.sku).join(" "),
+                  },
+                  { key: "no", label: "영수증", value: (r) => r.no, render: (r) => <span className="text-neutral-500">{r.no}</span> },
+                  { key: "at", label: "시간", value: (r) => r.at, render: (r) => <span className="text-neutral-500">{timeOf(r.at)}</span> },
+                  { key: "store", label: "매장", value: (r) => r.store },
+                  { key: "employee", label: "직원", value: (r) => r.employee ?? "", render: (r) => <span className="text-neutral-500">{r.employee ?? "—"}</span> },
+                  { key: "customer", label: "고객", value: (r) => r.customer ?? "", render: (r) => <span className="text-neutral-500">{r.customer ?? "—"}</span> },
+                  {
+                    key: "discount", label: "할인", right: true, value: (r) => r.discount,
+                    render: (r) =>
+                      r.discount > 0.001 ? (
+                        <span className="rounded-full bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 text-xs px-2 py-0.5">-{fmt(Math.round(r.discount))}</span>
+                      ) : (
+                        <span className="text-neutral-300">—</span>
+                      ),
+                  },
+                  {
+                    key: "net", label: "실결제", right: true, value: (r) => r.net,
+                    render: (r) => <b className={r.net < 0 ? "text-red-600" : ""}>{fmt(Math.round(r.net))}</b>,
+                  },
+                ]}
+              />
             </section>
           </>
         )}
@@ -622,16 +762,16 @@ export default function SalesPage() {
               <div>
                 <h3 className="font-bold text-neutral-900 dark:text-white">영수증 {sel.no}</h3>
                 <p className="text-xs text-neutral-500 mb-4">
-                  {timeOf(sel.at)} · {sel.store} 매장{sel.employee ? ` · 담당 ${sel.employee}` : ""} · Whisper of Spring
+                  {timeOf(sel.at)} · {sel.store} 매장{sel.employee ? ` · 담당 ${sel.employee}` : ""}{sel.customer ? ` · 고객 ${sel.customer}` : ""} · Whisper of Spring
                 </p>
               </div>
               <div className="flex gap-1.5 print:hidden">
                 <button
                   onClick={() =>
                     dlCsv(`영수증_${sel.no}.csv`, [
-                      ["영수증번호", "일시", "매장", "직원", "SKU", "상품명", "구분", "수량", "정가합계", "할인", "실결제"],
+                      ["영수증번호", "일시", "매장", "직원", "고객", "SKU", "상품명", "구분", "수량", "정가합계", "할인", "실결제"],
                       ...sel.lines.map((l) => [
-                        sel.no, timeOf(sel.at), sel.store, sel.employee ?? "", l.sku, l.name,
+                        sel.no, timeOf(sel.at), sel.store, sel.employee ?? "", sel.customer ?? "", l.sku, l.name,
                         l.isReturn ? "반품" : "판매", l.qty,
                         Math.round(l.gross), Math.round(l.discount), Math.round(l.net),
                       ]),
