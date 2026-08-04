@@ -99,6 +99,7 @@ export async function POST(req: Request) {
       price,
       cost,
       qty = {},
+      vat = true,
     } = body as {
       name: string;
       description?: string;
@@ -107,6 +108,7 @@ export async function POST(req: Request) {
       price: number;
       cost: number | null;
       qty: Record<string, number>;
+      vat?: boolean;
     };
     if (!name?.trim() || !category_id || !price)
       return NextResponse.json({ error: "이름/카테고리/가격은 필수" }, { status: 400 });
@@ -137,25 +139,52 @@ export async function POST(req: Request) {
     const b12 = "20" + sku; // 기존 규칙: '20' + 10자리 SKU + 체크숫자 = 13자리
     const barcode = b12 + ean13CheckDigit(b12);
 
-    // 2) Loyverse에 상품 생성
-    const lvItem = await lv("/items", token, {
-      method: "POST",
-      body: JSON.stringify({
-        item_name: name.trim(),
-        category_id,
-        description: description || undefined,
-        track_stock: true,
-        variants: [
-          {
-            sku,
-            barcode,
-            cost: cost ?? undefined,
-            default_pricing_type: "FIXED",
-            default_price: price,
-          },
-        ],
-      }),
-    });
+    // 2) VAT 세금 ID 조회 (토글 ON일 때)
+    let taxIds: string[] | undefined;
+    if (vat) {
+      try {
+        const taxRes = await lv("/taxes", token);
+        const t = (taxRes.taxes ?? []).find(
+          (x: { name: string; rate: number }) =>
+            /vat/i.test(x.name) || x.rate === 5
+        );
+        if (t) taxIds = [t.id];
+      } catch {
+        /* 세금 조회 실패해도 상품 등록은 진행 */
+      }
+    }
+
+    // 3) Loyverse에 상품 생성 (tax_ids 미지원 응답이면 없이 재시도)
+    const itemPayload = {
+      item_name: name.trim(),
+      category_id,
+      description: description || undefined,
+      track_stock: true,
+      tax_ids: taxIds,
+      variants: [
+        {
+          sku,
+          barcode,
+          cost: cost ?? undefined,
+          default_pricing_type: "FIXED",
+          default_price: price,
+        },
+      ],
+    };
+    let lvItem;
+    try {
+      lvItem = await lv("/items", token, {
+        method: "POST",
+        body: JSON.stringify(itemPayload),
+      });
+    } catch (err) {
+      if (taxIds) {
+        lvItem = await lv("/items", token, {
+          method: "POST",
+          body: JSON.stringify({ ...itemPayload, tax_ids: undefined }),
+        });
+      } else throw err;
+    }
     const variantId = lvItem.variants?.[0]?.variant_id as string | undefined;
 
     // 3) 초기 재고를 Loyverse에 설정
@@ -206,7 +235,7 @@ export async function POST(req: Request) {
       created_by: auth.user.id,
     });
 
-    return NextResponse.json({ ok: true, sku, barcode });
+    return NextResponse.json({ ok: true, sku, barcode, product_id: inserted.id });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : String(e) },

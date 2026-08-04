@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Nav from "@/components/Nav";
+import { createClient } from "@/lib/supabase";
 
 type Cat = { id: string; name: string };
 
@@ -21,6 +22,10 @@ export default function NewProductPage() {
   const [price, setPrice] = useState("");
   const [cost, setCost] = useState("");
   const [qty, setQty] = useState({ MCC: "", MOE: "", WH: "" });
+  const [vat, setVat] = useState(true);
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [photoNote, setPhotoNote] = useState<string | null>(null);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -61,11 +66,33 @@ export default function NewProductPage() {
           qty: Object.fromEntries(
             Object.entries(qty).map(([k, v]) => [k, v ? parseInt(v, 10) : 0])
           ),
+          vat,
         }),
       });
       const j = await res.json();
       if (!j.ok) setErr(j.error);
-      else setDone({ sku: j.sku, barcode: j.barcode });
+      else {
+        // 사진이 있으면 스토리지 업로드 → 시스템 이미지로 연결
+        if (photo && j.product_id) {
+          const supabase = createClient();
+          const path = `${j.sku}.jpg`;
+          const { error: upErr } = await supabase.storage
+            .from("product-images")
+            .upload(path, photo, { upsert: true, contentType: photo.type || "image/jpeg" });
+          if (upErr) setPhotoNote("사진 업로드 실패: " + upErr.message);
+          else {
+            const { data: pub } = supabase.storage
+              .from("product-images")
+              .getPublicUrl(path);
+            await supabase
+              .from("products")
+              .update({ image_url: pub.publicUrl })
+              .eq("id", j.product_id);
+            setPhotoNote("사진 등록 완료 (시스템·쇼핑몰용. POS 타일 이미지는 Loyverse 앱에서 별도 지정)");
+          }
+        }
+        setDone({ sku: j.sku, barcode: j.barcode });
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
@@ -78,6 +105,9 @@ export default function NewProductPage() {
     setPrice("");
     setCost("");
     setQty({ MCC: "", MOE: "", WH: "" });
+    setPhoto(null);
+    setPreview(null);
+    setPhotoNote(null);
     setDone(null);
     setErr(null);
   }
@@ -111,6 +141,9 @@ export default function NewProductPage() {
                 <b className="text-lg tracking-wide">{done.barcode}</b>
               </div>
             </div>
+            {photoNote && (
+              <p className="mt-3 text-xs text-neutral-500">{photoNote}</p>
+            )}
             <button
               onClick={reset}
               className="mt-4 w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3"
@@ -208,6 +241,73 @@ export default function NewProductPage() {
               <p className="mt-3 text-xs text-neutral-400">
                 SKU·바코드는 저장 시 자동 생성: 오늘 날짜(YYMMDD) + 카테고리 코드 + 순번.
                 기존 채번 규칙과 동일합니다.
+              </p>
+            </div>
+
+            <div className={card}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm font-semibold text-neutral-900 dark:text-white">
+                    세금 — VAT (5%)
+                  </span>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Loyverse의 VAT 설정을 이 상품에 적용합니다
+                  </p>
+                </div>
+                <button
+                  onClick={() => setVat(!vat)}
+                  className={`w-12 h-7 rounded-full transition-colors ${
+                    vat ? "bg-green-500" : "bg-neutral-300 dark:bg-neutral-700"
+                  }`}
+                >
+                  <span
+                    className={`block w-5 h-5 bg-white rounded-full shadow transform transition-transform ${
+                      vat ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            <div className={card}>
+              <span className={label}>상품 사진 (선택)</span>
+              <div className="flex items-center gap-3 mt-1">
+                <label className="rounded-lg border border-neutral-300 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-300 px-4 py-2.5 cursor-pointer hover:border-blue-500">
+                  📷 촬영 / 선택
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      setPhoto(f);
+                      setPreview(f ? URL.createObjectURL(f) : null);
+                    }}
+                  />
+                </label>
+                {preview && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={preview}
+                    alt=""
+                    className="w-16 h-16 rounded-lg object-cover border border-neutral-200 dark:border-neutral-700"
+                  />
+                )}
+                {photo && (
+                  <button
+                    onClick={() => {
+                      setPhoto(null);
+                      setPreview(null);
+                    }}
+                    className="text-xs text-neutral-400 hover:text-red-500"
+                  >
+                    제거
+                  </button>
+                )}
+              </div>
+              <p className="mt-2 text-xs text-neutral-400">
+                시스템·쇼핑몰용 사진입니다. POS 타일 이미지는 Loyverse 앱에서 별도 지정.
               </p>
             </div>
 

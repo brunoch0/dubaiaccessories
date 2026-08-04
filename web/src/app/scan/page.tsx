@@ -29,6 +29,11 @@ export default function ScanPage() {
   const [product, setProduct] = useState<Product | null>(null);
   const [stock, setStock] = useState<Stock>({ MCC: 0, MOE: 0, WH: 0 });
   const [cost, setCost] = useState<number | null>(null);
+  const [attr, setAttr] = useState<{
+    material: string | null;
+    keywords: string[];
+    sales_pitch: string | null;
+  } | null>(null);
   const [notFound, setNotFound] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -112,6 +117,12 @@ export default function ScanPage() {
       .select("cost")
       .eq("product_id", p.id);
     setCost(cd && cd.length > 0 ? cd[0].cost : null);
+    const { data: ad } = await supabase
+      .from("product_attributes")
+      .select("material,keywords,sales_pitch")
+      .eq("product_id", p.id)
+      .maybeSingle();
+    setAttr(ad ?? null);
   }
 
   async function refreshStock(productId: string) {
@@ -288,6 +299,31 @@ export default function ScanPage() {
                 </span>
               )}
             </div>
+
+            {attr && (
+              <div className="mb-4 bg-blue-50 dark:bg-blue-950/40 rounded-lg px-3 py-3">
+                {attr.material && (
+                  <div className="text-xs text-neutral-700 dark:text-neutral-200 mb-1">
+                    재료: {attr.material}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-1">
+                  {attr.keywords.map((k) => (
+                    <span
+                      key={k}
+                      className="rounded-full bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 text-[11px] px-2 py-0.5 border border-blue-200 dark:border-blue-900"
+                    >
+                      #{k}
+                    </span>
+                  ))}
+                </div>
+                {attr.sales_pitch && (
+                  <p className="mt-1.5 text-xs text-neutral-600 dark:text-neutral-300 italic">
+                    💬 {attr.sales_pitch}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* 액션 */}
             <div className="space-y-2">

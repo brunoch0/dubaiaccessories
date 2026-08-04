@@ -23,6 +23,9 @@ type CustomerStats = {
   ages: [string, number][];
   nats: [string, number, number][]; // [국적, 건수, 평균객단가]
   purposes: [string, number][];
+  insights: string[];
+  crossAges: string[];
+  crossRows: [string, number[]][]; // [국적, 연령대별 건수]
 };
 
 type Stats = {
@@ -105,6 +108,61 @@ export default function Dashboard() {
           e.n++;
           natAvg.set(v.nationality, e);
         });
+        // ---- 교차 분석 + 인사이트 도출
+        const crossAges = ["20s", "30s", "40s", "50s"];
+        const natTop = cnt("nationality")
+          .slice(0, 4)
+          .map(([k]) => k);
+        const crossRows: [string, number[]][] = natTop.map((nat) => [
+          nat,
+          crossAges.map(
+            (a) =>
+              visits.filter((v) => v.nationality === nat && v.age_group === a)
+                .length
+          ),
+        ]);
+
+        const insights: string[] = [];
+        let combo = { nat: "", age: "", n: 0 };
+        crossRows.forEach(([nat, cells]) =>
+          cells.forEach((n, i) => {
+            if (n > combo.n) combo = { nat, age: crossAges[i], n };
+          })
+        );
+        if (combo.n > 0)
+          insights.push(
+            `핵심 고객층은 ${combo.age} ${combo.nat} — 방문 ${combo.n.toLocaleString()}건으로 가장 많습니다. 신상 셀렉션과 인스타 콘텐츠의 1순위 기준입니다.`
+          );
+
+        let bestSpend = { nat: "", avg: 0 };
+        natAvg.forEach((e, k) => {
+          if (e.n >= 30 && e.sum / e.n > bestSpend.avg)
+            bestSpend = { nat: k, avg: e.sum / e.n };
+        });
+        if (bestSpend.nat)
+          insights.push(
+            `객단가 1위는 ${bestSpend.nat} (평균 AED ${Math.round(bestSpend.avg).toLocaleString()}) — 방문수 대비 구매력이 가장 높아 프리미엄 라인 제안 대상입니다.`
+          );
+
+        let bestRet = { nat: "", rate: 0, n: 0 };
+        natTop.forEach((nat) => {
+          const g = visits.filter((v) => v.nationality === nat);
+          const r =
+            g.filter((v) => v.visit_status === "Returning Customer").length /
+            Math.max(g.length, 1);
+          if (r > bestRet.rate) bestRet = { nat, rate: r, n: g.length };
+        });
+        if (bestRet.nat)
+          insights.push(
+            `재방문율 1위는 ${bestRet.nat} (${Math.round(bestRet.rate * 100)}%) — 단골 혜택·신상 알림을 가장 먼저 시도할 그룹입니다.`
+          );
+
+        const purp = cnt("purpose");
+        if (purp.length > 0)
+          insights.push(
+            `구매 목적 1위는 '${purp[0][0]}' (전체의 ${Math.round((purp[0][1] / visits.length) * 100)}%) — 선물 포장·기념일 프로모션이 매출로 직결되는 구조입니다.`
+          );
+
         setCs({
           total: visits.length,
           returningRate: Math.round((returning / visits.length) * 100),
@@ -123,6 +181,9 @@ export default function Dashboard() {
               ];
             }),
           purposes: cnt("purpose").slice(0, 6),
+          insights,
+          crossAges,
+          crossRows,
         });
       }
 
@@ -335,6 +396,65 @@ export default function Dashboard() {
                     "방문 1회당 평균 구매 금액입니다. 가격 정책·무료배송 기준선을 정할 때 참고하는 숫자예요."
                   )}
                 </div>
+                {cs.insights.length > 0 && (
+                  <div className="mt-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl p-5">
+                    <h3 className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2">
+                      🔎 인사이트
+                      <Help text="아래 방문 데이터에서 자동으로 도출한 요점입니다. 판매 데이터가 쌓이면 카테고리·시즌 인사이트로 확장됩니다." />
+                    </h3>
+                    <ul className="space-y-1.5 text-sm text-neutral-700 dark:text-neutral-200">
+                      {cs.insights.map((t) => (
+                        <li key={t} className="flex gap-2">
+                          <span className="text-blue-500">▸</span>
+                          <span>{t}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="mt-4 overflow-x-auto">
+                      <table className="text-xs w-full">
+                        <thead>
+                          <tr className="text-neutral-500">
+                            <th className="text-left py-1 pr-3">국적 \ 연령</th>
+                            {cs.crossAges.map((a) => (
+                              <th key={a} className="text-right py-1 px-2">
+                                {a}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {cs.crossRows.map(([nat, cells]) => {
+                            const max = Math.max(
+                              ...cs.crossRows.flatMap(([, c]) => c),
+                              1
+                            );
+                            return (
+                              <tr key={nat}>
+                                <td className="py-1 pr-3 text-neutral-600 dark:text-neutral-300">
+                                  {nat}
+                                </td>
+                                {cells.map((n, i) => (
+                                  <td
+                                    key={i}
+                                    className="text-right py-1 px-2 tabular-nums"
+                                    style={{
+                                      backgroundColor: `rgba(42,120,214,${(n / max) * 0.35})`,
+                                    }}
+                                  >
+                                    {n.toLocaleString()}
+                                  </td>
+                                ))}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      <p className="text-[11px] text-neutral-400 mt-1.5">
+                        진하게 칠해질수록 방문이 많은 조합 (상위 4개 국적 × 연령대)
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="grid md:grid-cols-2 gap-4 mt-3">
                   <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5">
                     <h3 className="text-sm font-semibold text-neutral-900 dark:text-white mb-3">

@@ -20,6 +20,7 @@ type Product = {
   total: number;
   cost: number | null;
   margin: number | null;
+  attr: { material: string | null; keywords: string[]; sales_pitch: string | null } | null;
 };
 
 const fmt = (n: number | null) => (n === null ? "—" : n.toLocaleString("en-US"));
@@ -62,6 +63,13 @@ function InventoryInner() {
           "product_id,cost"
         ),
       ]);
+      const aData = await fetchAll<{
+        product_id: string;
+        material: string | null;
+        keywords: string[];
+        sales_pitch: string | null;
+      }>(supabase, "product_attributes", "product_id,material,keywords,sales_pitch");
+      const aMap = new Map(aData.map((a) => [a.product_id, a]));
       const pRes = { data: pData };
       const iRes = { data: iData };
       const cRes = { data: cData };
@@ -88,6 +96,7 @@ function InventoryInner() {
             total: e.mcc + e.moe + e.wh,
             cost,
             margin,
+            attr: aMap.get(p.id) ?? null,
           } as Product;
         })
       );
@@ -358,6 +367,33 @@ function InventoryInner() {
                 </div>
               ))}
             </div>
+            {sel.attr && (
+              <div className="mt-3 bg-blue-50 dark:bg-blue-950/40 rounded-lg px-3 py-3">
+                <div className="text-[11px] text-blue-700 dark:text-blue-300 font-semibold mb-1">
+                  ✨ 상품 특성 (AI 분석 · 검수 필요)
+                </div>
+                {sel.attr.material && (
+                  <div className="text-xs text-neutral-700 dark:text-neutral-200 mb-1.5">
+                    재료: {sel.attr.material}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-1 mb-1.5">
+                  {sel.attr.keywords.map((k) => (
+                    <span
+                      key={k}
+                      className="rounded-full bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 text-[11px] px-2 py-0.5 border border-blue-200 dark:border-blue-900"
+                    >
+                      #{k}
+                    </span>
+                  ))}
+                </div>
+                {sel.attr.sales_pitch && (
+                  <p className="text-xs text-neutral-600 dark:text-neutral-300 italic">
+                    &ldquo;{sel.attr.sales_pitch}&rdquo;
+                  </p>
+                )}
+              </div>
+            )}
             <button
               onClick={() => setSel(null)}
               className="mt-4 w-full rounded-lg border border-neutral-300 dark:border-neutral-700 py-2 text-sm text-neutral-700 dark:text-neutral-300"

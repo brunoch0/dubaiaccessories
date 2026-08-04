@@ -56,6 +56,7 @@ export default function Nav() {
         {tab("/", "대시보드")}
         {tab("/inventory", "재고")}
         {tab("/scan", "📷 스캔")}
+        {me && me.role !== "staff" && tab("/sales", "정산")}
         {me && me.role !== "staff" && tab("/products/new", "＋등록")}
         {me && me.role !== "staff" && tab("/upload", "업로드")}
         {tab("/logs", "기록")}
