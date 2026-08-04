@@ -38,6 +38,32 @@ type Stats = {
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 
+function Help({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-block align-middle">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(!open);
+        }}
+        aria-label="설명"
+        className="ml-1 w-4 h-4 text-[10px] leading-4 text-center rounded-full border border-neutral-300 dark:border-neutral-600 text-neutral-400 hover:text-blue-600 hover:border-blue-500"
+      >
+        ?
+      </button>
+      {open && (
+        <span
+          onClick={() => setOpen(false)}
+          className="absolute z-30 left-1/2 -translate-x-1/2 top-6 w-60 bg-neutral-900 text-white text-xs rounded-lg px-3 py-2.5 shadow-xl font-normal normal-case cursor-pointer"
+        >
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function Dashboard() {
   const [s, setS] = useState<Stats | null>(null);
   const [cs, setCs] = useState<CustomerStats | null>(null);
@@ -144,12 +170,15 @@ export default function Dashboard() {
     })();
   }, []);
 
-  const tile = (label: string, value: string, cls = "") => (
+  const tile = (label: string, value: string, cls = "", help?: string) => (
     <div
       key={label}
       className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-4"
     >
-      <div className="text-xs text-neutral-500">{label}</div>
+      <div className="text-xs text-neutral-500">
+        {label}
+        {help && <Help text={help} />}
+      </div>
       <div className={`text-2xl font-bold mt-1 text-neutral-900 dark:text-white ${cls}`}>
         {value}
       </div>
@@ -193,22 +222,50 @@ export default function Dashboard() {
         ) : (
           <>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              {tile("등록 상품", fmt(s.products) + "개")}
-              {tile("MCC 재고", fmt(s.mcc) + "개")}
-              {tile("MOE 재고", fmt(s.moe) + "개")}
-              {tile("품절 상품", fmt(s.soldout) + "개")}
+              {tile(
+                "등록 상품",
+                fmt(s.products) + "개",
+                "",
+                "시스템에 등록된 전체 상품 종류 수입니다 (SKU 기준). 수량이 아니라 품목 수예요."
+              )}
+              {tile(
+                "MCC 재고",
+                fmt(s.mcc) + "개",
+                "",
+                "Mirdif City Centre 매장에 있는 모든 상품 수량의 합계입니다."
+              )}
+              {tile(
+                "MOE 재고",
+                fmt(s.moe) + "개",
+                "",
+                "Mall of the Emirates 매장에 있는 모든 상품 수량의 합계입니다."
+              )}
+              {tile(
+                "품절 상품",
+                fmt(s.soldout) + "개",
+                "",
+                "두 매장 재고를 합쳐도 0개 이하인 상품 수입니다. 보충하거나 판매 종료 처리할 후보예요."
+              )}
               {tile(
                 "마이너스 재고",
                 s.negatives + "건",
-                s.negatives > 0 ? "!text-red-600" : ""
+                s.negatives > 0 ? "!text-red-600" : "",
+                "기록상 재고가 음수(-)인 항목 — 실물과 기록이 어긋났다는 신호입니다. 해당 품목만 실물을 세서 실사 반영하면 해결됩니다."
               )}
             </div>
             {s.costValue !== null && (
               <div className="grid grid-cols-2 gap-3 mt-3">
-                {tile("재고 원가액 (오너/관리자)", "AED " + fmt(Math.round(s.costValue)))}
+                {tile(
+                  "재고 원가액 (오너/관리자)",
+                  "AED " + fmt(Math.round(s.costValue)),
+                  "",
+                  "남아있는 모든 재고를 매입 원가로 환산한 금액 — 지금 재고에 묶여 있는 돈입니다."
+                )}
                 {tile(
                   "재고 판매가액 (오너/관리자)",
-                  "AED " + fmt(Math.round(s.priceValue ?? 0))
+                  "AED " + fmt(Math.round(s.priceValue ?? 0)),
+                  "",
+                  "남은 재고를 전부 정가에 판매했을 때의 예상 매출액입니다. 원가액과의 차이가 잠재 마진이에요."
                 )}
               </div>
             )}
@@ -217,12 +274,14 @@ export default function Dashboard() {
               <section className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5">
                 <h2 className="text-sm font-semibold text-neutral-900 dark:text-white mb-3">
                   카테고리별 상품 수 — 상위 10
+                  <Help text="카테고리마다 등록된 상품 종류가 몇 개인지입니다. 어느 카테고리에 상품이 몰려 있는지 볼 수 있어요." />
                 </h2>
                 {bars(s.catCounts)}
               </section>
               <section className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5">
                 <h2 className="text-sm font-semibold text-neutral-900 dark:text-white mb-3">
                   매장별 재고 수량
+                  <Help text="매장별로 갖고 있는 총 수량 비교입니다. 한쪽에 치우치면 매장 간 이동을 검토할 수 있어요." />
                 </h2>
                 {bars([
                   ["MCC", s.mcc],
@@ -257,20 +316,37 @@ export default function Dashboard() {
                   </span>
                 </h2>
                 <div className="grid grid-cols-3 gap-3">
-                  {tile("방문 기록", fmt(cs.total) + "건")}
-                  {tile("재방문율", cs.returningRate + "%")}
-                  {tile("평균 객단가", "AED " + fmt(cs.avgAmount))}
+                  {tile(
+                    "방문 기록",
+                    fmt(cs.total) + "건",
+                    "",
+                    "고객 정보가 기록된 구매 방문 건수입니다 (영수증 기준, 중복 제거)."
+                  )}
+                  {tile(
+                    "재방문율",
+                    cs.returningRate + "%",
+                    "",
+                    "방문 기록 중 '재방문 고객'으로 표시된 비율입니다. 높을수록 단골이 많다는 뜻 — 온라인 쇼핑몰 오픈 시 1차 타겟이에요."
+                  )}
+                  {tile(
+                    "평균 객단가",
+                    "AED " + fmt(cs.avgAmount),
+                    "",
+                    "방문 1회당 평균 구매 금액입니다. 가격 정책·무료배송 기준선을 정할 때 참고하는 숫자예요."
+                  )}
                 </div>
                 <div className="grid md:grid-cols-2 gap-4 mt-3">
                   <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5">
                     <h3 className="text-sm font-semibold text-neutral-900 dark:text-white mb-3">
                       연령대 분포
+                      <Help text="방문 시 직원이 기록한 고객 연령대 분포입니다. 인스타 광고 타겟팅에 그대로 쓸 수 있어요." />
                     </h3>
                     {bars(cs.ages)}
                   </div>
                   <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5">
                     <h3 className="text-sm font-semibold text-neutral-900 dark:text-white mb-3">
                       국적 분포 · 국적별 평균 객단가
+                      <Help text="어느 국적 고객이 많이 오는지(막대)와, 그 고객군이 평균 얼마를 쓰는지(Ø 금액)입니다. 방문은 적어도 객단가가 높은 그룹이 VIP 후보예요." />
                     </h3>
                     <div className="space-y-1.5">
                       {cs.nats.map(([nat, n, avg]) => {
@@ -303,6 +379,7 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 mt-3">
                   <h3 className="text-sm font-semibold text-neutral-900 dark:text-white mb-3">
                     구매 목적 상위
+                    <Help text="직원이 기록한 구매 목적별 건수입니다. 선물 비중이 높으면 기프트 포장·시즌 프로모션의 근거가 됩니다." />
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     {cs.purposes.map(([p, n]) => (
@@ -321,6 +398,7 @@ export default function Dashboard() {
             <section className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 mt-4">
               <h2 className="text-sm font-semibold text-neutral-900 dark:text-white mb-3">
                 오늘 할 일 (데이터 품질)
+                <Help text="시스템이 발견한, 기록과 실물의 차이를 줄이기 위한 작업 목록입니다. 처리할수록 재고 숫자가 정확해집니다." />
               </h2>
               <ul className="text-sm text-neutral-600 dark:text-neutral-300 space-y-1.5">
                 <li>
