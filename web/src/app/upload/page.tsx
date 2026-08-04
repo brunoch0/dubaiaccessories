@@ -48,35 +48,50 @@ function num(v: string | undefined): number | null {
 const fmt = (n: number) => n.toLocaleString("en-US");
 
 function SyncButton() {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
-  async function run() {
-    setBusy(true);
+  async function run(endpoint: string, label: string) {
+    setBusy(label);
     setResult(null);
     try {
-      const res = await fetch("/api/loyverse-sync", { method: "POST" });
+      const res = await fetch(endpoint, { method: "POST" });
       const j = await res.json();
-      setResult(
-        j.ok
-          ? `✅ 영수증 ${j.receipts}건 → 판매 ${j.lines}건 반영 (미매칭 SKU ${j.unknownSku})`
-          : `⚠️ ${j.error}`
-      );
+      if (!j.ok) setResult(`⚠️ ${j.error}`);
+      else if (endpoint.includes("full"))
+        setResult(`✅ 전체 새로고침 완료: 상품 ${j.products}개, 재고 ${j.inventory}행`);
+      else
+        setResult(
+          `✅ 영수증 ${j.receipts}건 → 판매 ${j.lines}건 반영 (미매칭 SKU ${j.unknownSku})`
+        );
     } catch (e) {
       setResult("⚠️ " + (e instanceof Error ? e.message : String(e)));
     }
-    setBusy(false);
+    setBusy(null);
   }
 
   return (
     <div>
-      <button
-        onClick={run}
-        disabled={busy}
-        className="rounded-lg bg-neutral-900 dark:bg-white text-white dark:text-black text-sm font-semibold px-4 py-2.5 disabled:opacity-40"
-      >
-        {busy ? "동기화 중…" : "지금 동기화"}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => run("/api/loyverse-full-sync", "full")}
+          disabled={busy !== null}
+          className="rounded-lg bg-neutral-900 dark:bg-white text-white dark:text-black text-sm font-semibold px-4 py-2.5 disabled:opacity-40"
+        >
+          {busy === "full" ? "가져오는 중… (1~2분)" : "① 전체 데이터 새로 가져오기"}
+        </button>
+        <button
+          onClick={() => run("/api/loyverse-sync", "sales")}
+          disabled={busy !== null}
+          className="rounded-lg border border-neutral-400 dark:border-neutral-600 text-neutral-800 dark:text-neutral-200 text-sm font-semibold px-4 py-2.5 disabled:opacity-40"
+        >
+          {busy === "sales" ? "동기화 중…" : "② 판매 동기화"}
+        </button>
+      </div>
+      <p className="mt-2 text-xs text-neutral-400">
+        ①은 Loyverse의 현재 상품·재고를 통째로 다시 가져옵니다 (기준 시점 리셋).
+        ②는 그 이후의 판매 영수증만 반영합니다.
+      </p>
       {result && (
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-300">{result}</p>
       )}

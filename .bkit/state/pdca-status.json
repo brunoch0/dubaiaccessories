@@ -1,6 +1,6 @@
 {
   "version": "3.0",
-  "lastUpdated": "2026-08-04T12:36:06.321Z",
+  "lastUpdated": "2026-08-04T12:59:55.937Z",
   "activeFeatures": [
     "web",
     "login",
@@ -11,7 +11,8 @@
     "transfer",
     "upload",
     "logs",
-    "loyverse-sync"
+    "loyverse-sync",
+    "loyverse-full-sync"
   ],
   "primaryFeature": "web",
   "features": {
@@ -115,7 +116,7 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-24T09:52:38.560Z",
-        "lastUpdated": "2026-08-04T12:36:06.320Z"
+        "lastUpdated": "2026-08-04T12:59:55.937Z"
       },
       "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/upload/page.tsx"
     },
@@ -144,6 +145,19 @@
         "lastUpdated": "2026-08-04T12:35:49.342Z"
       },
       "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/api/loyverse-sync/route.ts"
+    },
+    "loyverse-full-sync": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-08-04T12:59:29.348Z",
+        "lastUpdated": "2026-08-04T12:59:29.348Z"
+      },
+      "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/api/loyverse-full-sync/route.ts"
     }
   },
   "pipeline": {
@@ -154,7 +168,7 @@
   "session": {
     "startedAt": "2026-07-23T04:04:40.962Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-08-04T12:36:06.321Z"
+    "lastActivity": "2026-08-04T12:59:55.937Z"
   },
   "history": [
     {
@@ -357,6 +371,18 @@
     },
     {
       "timestamp": "2026-08-04T12:36:06.321Z",
+      "feature": "upload",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-08-04T12:59:29.348Z",
+      "feature": "loyverse-full-sync",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-08-04T12:59:55.937Z",
       "feature": "upload",
       "phase": "do",
       "action": "updated"
