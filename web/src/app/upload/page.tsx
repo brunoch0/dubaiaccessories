@@ -218,6 +218,22 @@ export default function UploadPage() {
       }
 
       if (log.length === 0) log.push("변경 사항 없음 — 이미 최신 상태입니다.");
+
+      // 활동 기록 남기기
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      await supabase.from("activity_log").insert({
+        type: "csv_upload",
+        summary: `CSV 업로드: ${fileName ?? "파일"}`,
+        detail: {
+          신규: diff.newProducts.length,
+          재고변경: diff.stockChanges.length,
+          가격변경: diff.priceChanges.length,
+        },
+        created_by: user?.id ?? null,
+      });
+
       setReport(log);
       setPhase("done");
     } catch (e) {

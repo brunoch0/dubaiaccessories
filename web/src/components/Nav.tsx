@@ -57,6 +57,7 @@ export default function Nav() {
         {tab("/inventory", "재고")}
         {tab("/scan", "📷 스캔")}
         {me && me.role !== "staff" && tab("/upload", "업로드")}
+        {tab("/logs", "기록")}
         <div className="ml-auto flex items-center gap-3">
           {me && (
             <span className="hidden sm:block text-xs text-neutral-500">
