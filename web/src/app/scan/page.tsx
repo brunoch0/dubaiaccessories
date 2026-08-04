@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Nav from "@/components/Nav";
 import { createClient } from "@/lib/supabase";
+import Help, { SKU_HELP } from "@/components/Help";
 
 type Product = {
   id: string;
@@ -267,7 +268,7 @@ export default function ScanPage() {
             )}
             <h2 className="font-bold text-neutral-900 dark:text-white">{product.name}</h2>
             <p className="text-xs text-neutral-500 mb-3">
-              {product.category} · SKU {product.sku}
+              {product.category} · SKU {product.sku}<Help text={SKU_HELP} />
             </p>
             <div className="grid grid-cols-3 gap-2 text-center mb-3">
               {(["MCC", "MOE", "WH"] as const).map((s) => (

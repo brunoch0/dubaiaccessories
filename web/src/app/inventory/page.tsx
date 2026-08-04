@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import { createClient, fetchAll } from "@/lib/supabase";
+import Help, { SKU_HELP } from "@/components/Help";
 
 type Product = {
   id: string;
@@ -236,6 +237,7 @@ function InventoryInner() {
             <option value="mcc">MCC 보유</option>
             <option value="moe">MOE 보유</option>
           </select>
+          <span className="flex items-center text-xs text-neutral-400 px-1">SKU 규칙<Help text={SKU_HELP} /></span>
           <select
             value={status}
             onChange={(e) => {
@@ -389,7 +391,7 @@ function InventoryInner() {
             )}
             <h3 className="font-bold text-neutral-900 dark:text-white">{sel.name}</h3>
             <p className="text-xs text-neutral-500 mb-4">
-              {sel.category} · SKU {sel.sku} · 바코드 {sel.barcode || "—"}
+              {sel.category} · SKU {sel.sku}<Help text={SKU_HELP} /> · 바코드 {sel.barcode || "—"}
               {sel.flag ? ` · ${sel.flag}` : ""}
             </p>
             <div className="grid grid-cols-2 gap-2 text-sm">
