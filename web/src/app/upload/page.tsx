@@ -47,6 +47,43 @@ function num(v: string | undefined): number | null {
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 
+function SyncButton() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/loyverse-sync", { method: "POST" });
+      const j = await res.json();
+      setResult(
+        j.ok
+          ? `✅ 영수증 ${j.receipts}건 → 판매 ${j.lines}건 반영 (미매칭 SKU ${j.unknownSku})`
+          : `⚠️ ${j.error}`
+      );
+    } catch (e) {
+      setResult("⚠️ " + (e instanceof Error ? e.message : String(e)));
+    }
+    setBusy(false);
+  }
+
+  return (
+    <div>
+      <button
+        onClick={run}
+        disabled={busy}
+        className="rounded-lg bg-neutral-900 dark:bg-white text-white dark:text-black text-sm font-semibold px-4 py-2.5 disabled:opacity-40"
+      >
+        {busy ? "동기화 중…" : "지금 동기화"}
+      </button>
+      {result && (
+        <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-300">{result}</p>
+      )}
+    </div>
+  );
+}
+
 export default function UploadPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -330,6 +367,17 @@ export default function UploadPage() {
             </button>
           </div>
         )}
+
+        <div className="mt-8 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-5">
+          <h2 className="text-sm font-semibold text-neutral-900 dark:text-white mb-1">
+            ⚡ Loyverse API 동기화
+          </h2>
+          <p className="text-xs text-neutral-500 mb-3">
+            토큰 연결 후 사용. 판매 영수증을 자동으로 가져와 재고에 반영합니다.
+            성공하면 시스템이 API 모드로 전환되어 스캔의 수동 판매 입력이 숨겨집니다.
+          </p>
+          <SyncButton />
+        </div>
 
         {phase === "done" && (
           <div className="mt-5 bg-white dark:bg-neutral-900 border border-green-300 dark:border-green-900 rounded-2xl p-5">

@@ -1,6 +1,6 @@
 {
   "version": "3.0",
-  "lastUpdated": "2026-08-04T12:26:29.758Z",
+  "lastUpdated": "2026-08-04T12:36:06.321Z",
   "activeFeatures": [
     "web",
     "login",
@@ -10,7 +10,8 @@
     "scan",
     "transfer",
     "upload",
-    "logs"
+    "logs",
+    "loyverse-sync"
   ],
   "primaryFeature": "web",
   "features": {
@@ -114,7 +115,7 @@
       "documents": {},
       "timestamps": {
         "started": "2026-07-24T09:52:38.560Z",
-        "lastUpdated": "2026-08-04T12:26:28.055Z"
+        "lastUpdated": "2026-08-04T12:36:06.320Z"
       },
       "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/upload/page.tsx"
     },
@@ -130,6 +131,19 @@
         "lastUpdated": "2026-08-04T12:26:15.644Z"
       },
       "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/logs/page.tsx"
+    },
+    "loyverse-sync": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-08-04T12:35:49.342Z",
+        "lastUpdated": "2026-08-04T12:35:49.342Z"
+      },
+      "lastFile": "/Users/bruno/Dev/Dubai Accessories/web/src/app/api/loyverse-sync/route.ts"
     }
   },
   "pipeline": {
@@ -140,7 +154,7 @@
   "session": {
     "startedAt": "2026-07-23T04:04:40.962Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-08-04T12:26:29.758Z"
+    "lastActivity": "2026-08-04T12:36:06.321Z"
   },
   "history": [
     {
@@ -326,6 +340,24 @@
     {
       "timestamp": "2026-08-04T12:26:29.758Z",
       "feature": "web",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-08-04T12:35:49.342Z",
+      "feature": "loyverse-sync",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-08-04T12:36:01.388Z",
+      "feature": "upload",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-08-04T12:36:06.321Z",
+      "feature": "upload",
       "phase": "do",
       "action": "updated"
     }
