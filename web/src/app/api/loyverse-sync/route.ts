@@ -4,7 +4,8 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 const LV_BASE = "https://api.loyverse.com/v1.0";
-const BACKFILL_FROM = "2026-07-01T00:00:00.000Z"; // 첫 동기화 시 이 시점부터 과거 영수증 백필
+// Loyverse 무료 플랜은 영수증 조회가 최근 31일로 제한됨 → 여유 있게 30일 전부터 백필
+const backfillFrom = () => new Date(Date.now() - 30 * 86400_000).toISOString();
 
 type LvReceipt = {
   receipt_number: string;
@@ -73,15 +74,18 @@ export async function POST() {
         .maybeSingle();
       return data?.value as string | undefined;
     };
-    const snapshotAt = (await getSetting("loyverse_snapshot_at")) ?? BACKFILL_FROM;
+    const minAllowed = backfillFrom();
+    const snapshotAt = (await getSetting("loyverse_snapshot_at")) ?? minAllowed;
     const { count: existingReceipts } = await db
       .from("loyverse_receipts")
       .select("*", { count: "exact", head: true });
     // 첫 실행이면 과거까지 백필 (스냅샷 이전 건은 재고 미반영으로 기록만)
-    const since =
+    // 무료 플랜 31일 제한을 넘지 않도록 항상 클램프
+    let since =
       (existingReceipts ?? 0) === 0
-        ? BACKFILL_FROM
+        ? minAllowed
         : ((await getSetting("loyverse_last_sync")) ?? snapshotAt);
+    if (since < minAllowed) since = minAllowed;
 
     let cursor: string | undefined;
     let receipts = 0,
