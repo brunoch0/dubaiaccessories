@@ -12,21 +12,37 @@ type Mov = {
   qty: number;
   reason: string | null;
   created_at: string;
+  unit_price: number | null;
+  line_total: number | null;
+  discount: number | null;
 };
-type Prod = { id: string; sku: string; name: string; price: number | null };
+type Prod = { id: string; sku: string; name: string; price: number | null; image_url: string | null };
 
+type Line = {
+  name: string;
+  sku: string;
+  image: string | null;
+  qty: number;
+  gross: number; // 정가 합계
+  net: number; // 실결제
+  discount: number;
+  isReturn: boolean;
+  estimated: boolean;
+};
 type Receipt = {
   no: string;
   at: string;
   store: string;
-  lines: { name: string; sku: string; qty: number; price: number | null; signed: number }[];
-  total: number;
+  lines: Line[];
+  gross: number;
+  net: number;
+  discount: number;
+  estimated: boolean;
 };
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 const DUBAI = "Asia/Dubai";
-const dayOf = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-CA", { timeZone: DUBAI });
+const dayOf = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: DUBAI });
 const timeOf = (iso: string) =>
   new Date(iso).toLocaleString("ko-KR", {
     timeZone: DUBAI,
@@ -35,16 +51,41 @@ const timeOf = (iso: string) =>
     hour: "2-digit",
     minute: "2-digit",
   });
+const isoDaysAgo = (d: number) =>
+  new Date(Date.now() - d * 86400_000).toLocaleDateString("en-CA", { timeZone: DUBAI });
 
-function isoDaysAgo(days: number): string {
-  const d = new Date(Date.now() - days * 86400_000);
-  return d.toLocaleDateString("en-CA", { timeZone: DUBAI });
+function Help({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-block align-middle print:hidden">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(!open);
+        }}
+        className="ml-1 w-4 h-4 text-[10px] leading-4 text-center rounded-full border border-neutral-300 dark:border-neutral-600 text-neutral-400 hover:text-blue-600"
+      >
+        ?
+      </button>
+      {open && (
+        <span
+          onClick={() => setOpen(false)}
+          className="absolute z-30 left-1/2 -translate-x-1/2 top-6 w-60 bg-neutral-900 text-white text-xs rounded-lg px-3 py-2.5 shadow-xl font-normal cursor-pointer"
+        >
+          {text}
+        </span>
+      )}
+    </span>
+  );
 }
+
+const S_COLORS: Record<string, string> = { MCC: "#2a78d6", MOE: "#eb6834" };
 
 export default function SalesPage() {
   const [role, setRole] = useState<string | null>(null);
-  const [from, setFrom] = useState(isoDaysAgo(6));
+  const [from, setFrom] = useState(isoDaysAgo(13));
   const [to, setTo] = useState(isoDaysAgo(0));
+  const [storeF, setStoreF] = useState<"" | "MCC" | "MOE">("");
   const [movs, setMovs] = useState<Mov[] | null>(null);
   const [prods, setProds] = useState<Map<string, Prod>>(new Map());
   const [sel, setSel] = useState<Receipt | null>(null);
@@ -53,14 +94,10 @@ export default function SalesPage() {
     const supabase = createClient();
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return;
-      const { data } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .single();
+      const { data } = await supabase.from("profiles").select("role").eq("id", user.id).single();
       setRole(data?.role ?? "staff");
     });
-    fetchAll<Prod>(supabase, "products", "id,sku,name,price").then((p) =>
+    fetchAll<Prod>(supabase, "products", "id,sku,name,price,image_url").then((p) =>
       setProds(new Map(p.map((x) => [x.id, x])))
     );
   }, []);
@@ -68,14 +105,13 @@ export default function SalesPage() {
   const load = useCallback(async () => {
     setMovs(null);
     const supabase = createClient();
-    // 두바이 기준 날짜 범위 → UTC (두바이 = UTC+4)
     const fromIso = new Date(`${from}T00:00:00+04:00`).toISOString();
     const toIso = new Date(`${to}T23:59:59+04:00`).toISOString();
     const all: Mov[] = [];
     for (let p = 0; ; p += 1000) {
       const { data, error } = await supabase
         .from("movements")
-        .select("id,product_id,store,type,qty,reason,created_at")
+        .select("id,product_id,store,type,qty,reason,created_at,unit_price,line_total,discount")
         .in("type", ["sale", "return"])
         .gte("created_at", fromIso)
         .lte("created_at", toIso)
@@ -102,64 +138,120 @@ export default function SalesPage() {
       </div>
     );
 
-  const value = (m: Mov) => {
-    const price = prods.get(m.product_id)?.price ?? 0;
-    return (m.type === "return" ? -1 : 1) * m.qty * price;
+  // ---- 금액 계산 (회계 기준: 실결제=Net, 정가=Gross, 할인=Gross-Net)
+  const calc = (m: Mov) => {
+    const p = prods.get(m.product_id);
+    const grossUnit = m.unit_price ?? p?.price ?? 0;
+    const gross = grossUnit * m.qty;
+    const estimated = m.line_total === null;
+    const net = m.line_total ?? gross;
+    const sign = m.type === "return" ? -1 : 1;
+    return {
+      gross: sign * gross,
+      net: sign * net,
+      discount: m.discount ?? Math.max(gross - net, 0),
+      estimated,
+      sign,
+    };
   };
-  const qtySigned = (m: Mov) => (m.type === "return" ? -m.qty : m.qty);
 
-  const rows = movs ?? [];
-  const totalQty = rows.reduce((a, m) => a + qtySigned(m), 0);
-  const totalVal = rows.reduce((a, m) => a + value(m), 0);
+  const rows = (movs ?? []).filter((m) => !storeF || m.store === storeF);
+  let gross = 0,
+    net = 0,
+    discount = 0,
+    qtyNet = 0,
+    anyEstimated = false;
+  rows.forEach((m) => {
+    const c = calc(m);
+    gross += c.gross;
+    net += c.net;
+    discount += c.discount;
+    qtyNet += c.sign * m.qty;
+    if (c.estimated) anyEstimated = true;
+  });
 
-  // 일별 집계
-  const byDay = new Map<
-    string,
-    { mccQ: number; moeQ: number; mccV: number; moeV: number }
-  >();
+  // ---- 일별 (매장 분리)
+  const byDay = new Map<string, { MCC: number; MOE: number; qM: number; qO: number; disc: number }>();
   rows.forEach((m) => {
     const d = dayOf(m.created_at);
-    const e = byDay.get(d) ?? { mccQ: 0, moeQ: 0, mccV: 0, moeV: 0 };
+    const e = byDay.get(d) ?? { MCC: 0, MOE: 0, qM: 0, qO: 0, disc: 0 };
+    const c = calc(m);
     if (m.store === "MCC") {
-      e.mccQ += qtySigned(m);
-      e.mccV += value(m);
+      e.MCC += c.net;
+      e.qM += c.sign * m.qty;
     } else if (m.store === "MOE") {
-      e.moeQ += qtySigned(m);
-      e.moeV += value(m);
+      e.MOE += c.net;
+      e.qO += c.sign * m.qty;
     }
+    e.disc += c.discount;
     byDay.set(d, e);
   });
-  const days = [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  const daysDesc = [...byDay.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  const daysAsc = [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 
-  // 영수증 그룹 (Loyverse 동기화분)
+  // ---- 영수증
   const recMap = new Map<string, Receipt>();
-  let manualCount = 0;
   rows.forEach((m) => {
-    if (!m.reason?.startsWith("Loyverse ")) {
-      if (m.type === "sale") manualCount += m.qty;
-      return;
-    }
+    if (!m.reason?.startsWith("Loyverse ")) return;
     const no = m.reason.replace("Loyverse ", "");
     const p = prods.get(m.product_id);
+    const c = calc(m);
     const r =
       recMap.get(no) ??
-      ({ no, at: m.created_at, store: m.store, lines: [], total: 0 } as Receipt);
+      ({ no, at: m.created_at, store: m.store, lines: [], gross: 0, net: 0, discount: 0, estimated: false } as Receipt);
     r.lines.push({
       name: p?.name ?? "?",
       sku: p?.sku ?? "",
+      image: p?.image_url ?? null,
       qty: m.qty,
-      price: p?.price ?? null,
-      signed: qtySigned(m),
+      gross: Math.abs(c.gross),
+      net: Math.abs(c.net),
+      discount: c.discount,
+      isReturn: m.type === "return",
+      estimated: c.estimated,
     });
-    r.total += value(m);
+    r.gross += c.gross;
+    r.net += c.net;
+    r.discount += c.discount;
+    if (c.estimated) r.estimated = true;
     if (m.created_at < r.at) r.at = m.created_at;
     recMap.set(no, r);
   });
   const receipts = [...recMap.values()].sort((a, b) => b.at.localeCompare(a.at));
+  const discountedReceipts = receipts.filter((r) => r.discount > 0.001);
 
-  const preset = (label: string, f: string, t: string) => (
+  // ---- 인사이트
+  const insights: string[] = [];
+  if (daysAsc.length > 0) {
+    const best = [...daysAsc].sort((a, b) => b[1].MCC + b[1].MOE - (a[1].MCC + a[1].MOE))[0];
+    insights.push(
+      `최고 매출일은 ${best[0]} (AED ${fmt(Math.round(best[1].MCC + best[1].MOE))}) 입니다.`
+    );
+    const mccSum = daysAsc.reduce((a, [, e]) => a + e.MCC, 0);
+    const moeSum = daysAsc.reduce((a, [, e]) => a + e.MOE, 0);
+    if (mccSum + moeSum > 0)
+      insights.push(
+        `매장 비중은 MCC ${Math.round((mccSum / (mccSum + moeSum)) * 100)}% : MOE ${Math.round(
+          (moeSum / (mccSum + moeSum)) * 100
+        )}% (순매출 기준).`
+      );
+    if (receipts.length > 0)
+      insights.push(
+        `영수증 평균 단가는 AED ${fmt(Math.round(net / receipts.length))}, 할인 적용 영수증은 ${
+          discountedReceipts.length
+        }건 (${Math.round((discountedReceipts.length / receipts.length) * 100)}%) — 할인 합계 AED ${fmt(
+          Math.round(discount)
+        )}.`
+      );
+  }
+
+  // ---- 차트 스케일
+  const chartMax = Math.max(...daysAsc.map(([, e]) => Math.max(e.MCC, e.MOE)), 1);
+  const xEvery = Math.max(1, Math.ceil(daysAsc.length / 8));
+
+  const preset = (labelText: string, f: string, t: string) => (
     <button
-      key={label}
+      key={labelText}
       onClick={() => {
         setFrom(f);
         setTo(t);
@@ -170,39 +262,65 @@ export default function SalesPage() {
           : "bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300"
       }`}
     >
-      {label}
+      {labelText}
     </button>
   );
   const today = isoDaysAgo(0);
 
-  return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
-      <Nav />
-      <main className="max-w-6xl mx-auto px-4 py-6">
-        <h1 className="text-lg font-bold text-neutral-900 dark:text-white">정산</h1>
-        <p className="text-sm text-neutral-500 mt-1 mb-4">
-          수량 × 등록 판매가 기준 <b>추정</b> 정산입니다 (POS 할인 미반영). 카드기 정산과
-          대조용으로 사용하세요.
-        </p>
+  const kpi = (label: string, value: string, help: string, cls = "") => (
+    <div key={label} className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-4">
+      <div className="text-xs text-neutral-500">
+        {label}
+        <Help text={help} />
+      </div>
+      <div className={`text-xl md:text-2xl font-bold mt-1 text-neutral-900 dark:text-white ${cls}`}>{value}</div>
+    </div>
+  );
 
-        <div className="flex flex-wrap items-center gap-2 mb-4">
+  return (
+    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 print:bg-white">
+      <div className="print:hidden">
+        <Nav />
+      </div>
+
+      <main className={`max-w-6xl mx-auto px-4 py-6 ${sel ? "print:hidden" : ""}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-bold text-neutral-900 dark:text-white">정산</h1>
+            <p className="text-sm text-neutral-500 mt-1">
+              {from} ~ {to} · {storeF || "전체 매장"} · 실결제(할인 반영) 기준
+              {anyEstimated && " · 일부 항목은 정가 추정 포함"}
+            </p>
+          </div>
+          <button
+            onClick={() => window.print()}
+            className="print:hidden rounded-lg border border-neutral-300 dark:border-neutral-700 text-sm text-neutral-700 dark:text-neutral-200 px-4 py-2 hover:border-blue-500"
+          >
+            🖨️ 출력
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 my-4 print:hidden">
           {preset("오늘", today, today)}
-          {preset("어제", isoDaysAgo(1), isoDaysAgo(1))}
           {preset("최근 7일", isoDaysAgo(6), today)}
+          {preset("최근 14일", isoDaysAgo(13), today)}
           {preset("최근 30일", isoDaysAgo(29), today)}
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1.5 text-sm text-neutral-900 dark:text-white"
-          />
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+            className="rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1.5 text-sm text-neutral-900 dark:text-white" />
           <span className="text-neutral-400">~</span>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1.5 text-sm text-neutral-900 dark:text-white"
-          />
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)}
+            className="rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-2 py-1.5 text-sm text-neutral-900 dark:text-white" />
+          <span className="mx-1 text-neutral-300">|</span>
+          {(["", "MCC", "MOE"] as const).map((s) => (
+            <button key={s || "all"} onClick={() => setStoreF(s)}
+              className={`px-3 py-1.5 rounded-full text-sm ${
+                storeF === s
+                  ? "bg-neutral-900 dark:bg-white text-white dark:text-black font-semibold"
+                  : "bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 text-neutral-600 dark:text-neutral-300"
+              }`}>
+              {s || "전체 매장"}
+            </button>
+          ))}
         </div>
 
         {!movs ? (
@@ -210,65 +328,97 @@ export default function SalesPage() {
         ) : (
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                ["판매 수량 (반품 차감)", fmt(totalQty) + "개"],
-                ["추정 매출 (정가)", "AED " + fmt(Math.round(totalVal))],
-                ["POS 영수증", fmt(receipts.length) + "건"],
-                ["수동 입력 판매", fmt(manualCount) + "개"],
-              ].map(([l, v]) => (
-                <div
-                  key={l}
-                  className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-4"
-                >
-                  <div className="text-xs text-neutral-500">{l}</div>
-                  <div className="text-2xl font-bold mt-1 text-neutral-900 dark:text-white">
-                    {v}
-                  </div>
-                </div>
-              ))}
+              {kpi("순매출 (실결제)", "AED " + fmt(Math.round(net)),
+                "고객이 실제로 결제한 금액의 합계입니다 (할인 차감·반품 반영). 카드기 정산과 대조하는 기준 숫자예요.")}
+              {kpi("정가 매출", "AED " + fmt(Math.round(gross)),
+                "할인이 없었다면 발생했을 금액 (정가 × 수량). 순매출과의 차이가 할인 총액입니다.")}
+              {kpi("할인 합계", "AED " + fmt(Math.round(discount)) + (gross > 0 ? ` (${Math.round((discount / gross) * 100)}%)` : ""),
+                "정가 대비 깎아준 금액의 합계와 할인율입니다.", discount > 0 ? "!text-amber-600" : "")}
+              {kpi("판매 수량 / 영수증", `${fmt(qtyNet)}개 / ${fmt(receipts.length)}건`,
+                "반품을 차감한 순 판매 수량과 POS 영수증 수입니다.")}
             </div>
 
+            {insights.length > 0 && (
+              <div className="mt-4 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-1.5">🔎 인사이트</h3>
+                <ul className="space-y-1 text-sm text-neutral-700 dark:text-neutral-200">
+                  {insights.map((t) => (
+                    <li key={t} className="flex gap-2"><span className="text-blue-500">▸</span><span>{t}</span></li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {daysAsc.length > 0 && (
+              <section className="mt-5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5">
+                <div className="flex items-center gap-4 mb-3">
+                  <h2 className="text-sm font-semibold text-neutral-900 dark:text-white">일별 순매출 추이</h2>
+                  <span className="flex items-center gap-1 text-xs text-neutral-500">
+                    <span className="w-2.5 h-2.5 rounded-sm" style={{ background: S_COLORS.MCC }} /> MCC
+                  </span>
+                  <span className="flex items-center gap-1 text-xs text-neutral-500">
+                    <span className="w-2.5 h-2.5 rounded-sm" style={{ background: S_COLORS.MOE }} /> MOE
+                  </span>
+                </div>
+                <div className="flex items-end gap-[3px] h-36 overflow-x-auto pb-1">
+                  {daysAsc.map(([d, e], i) => (
+                    <div key={d} className="flex flex-col items-center gap-1 min-w-7 flex-1 group relative">
+                      <div className="flex items-end gap-[2px] w-full h-28 justify-center">
+                        {(!storeF || storeF === "MCC") && (
+                          <div title={`${d} MCC: AED ${fmt(Math.round(e.MCC))}`}
+                            className="w-2.5 rounded-t-[3px]"
+                            style={{ height: `${Math.max((e.MCC / chartMax) * 100, e.MCC > 0 ? 3 : 0)}%`, background: S_COLORS.MCC }} />
+                        )}
+                        {(!storeF || storeF === "MOE") && (
+                          <div title={`${d} MOE: AED ${fmt(Math.round(e.MOE))}`}
+                            className="w-2.5 rounded-t-[3px]"
+                            style={{ height: `${Math.max((e.MOE / chartMax) * 100, e.MOE > 0 ? 3 : 0)}%`, background: S_COLORS.MOE }} />
+                        )}
+                      </div>
+                      <span className={`text-[10px] text-neutral-400 whitespace-nowrap ${i % xEvery !== 0 ? "invisible" : ""}`}>
+                        {d.slice(5)}
+                      </span>
+                      <span className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 hidden group-hover:block bg-neutral-900 text-white text-[10px] rounded px-1.5 py-0.5 whitespace-nowrap z-10">
+                        {fmt(Math.round(e.MCC + e.MOE))}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             <section className="mt-5">
-              <h2 className="text-sm font-semibold text-neutral-900 dark:text-white mb-2">
-                일별 정산
-              </h2>
+              <h2 className="text-sm font-semibold text-neutral-900 dark:text-white mb-2">일별 정산</h2>
               <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800">
                 <table className="w-full text-sm bg-white dark:bg-neutral-950">
                   <thead>
                     <tr className="bg-neutral-100 dark:bg-neutral-900 text-xs text-neutral-500">
                       <th className="px-3 py-2 text-left">날짜</th>
                       <th className="px-3 py-2 text-right">MCC 수량</th>
-                      <th className="px-3 py-2 text-right">MCC 금액</th>
+                      <th className="px-3 py-2 text-right">MCC 순매출</th>
                       <th className="px-3 py-2 text-right">MOE 수량</th>
-                      <th className="px-3 py-2 text-right">MOE 금액</th>
-                      <th className="px-3 py-2 text-right">합계 금액</th>
+                      <th className="px-3 py-2 text-right">MOE 순매출</th>
+                      <th className="px-3 py-2 text-right">할인</th>
+                      <th className="px-3 py-2 text-right">합계 순매출</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {days.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="px-3 py-6 text-center text-neutral-400">
-                          이 기간에 판매 기록이 없습니다. (판매 동기화를 눌렀는지 확인)
-                        </td>
-                      </tr>
+                    {daysDesc.length === 0 ? (
+                      <tr><td colSpan={7} className="px-3 py-6 text-center text-neutral-400">
+                        이 기간에 판매 기록이 없습니다. (업로드 탭에서 ② 판매 동기화 실행)
+                      </td></tr>
                     ) : (
-                      days.map(([d, e]) => (
-                        <tr
-                          key={d}
-                          className="border-t border-neutral-100 dark:border-neutral-900"
-                        >
+                      daysDesc.map(([d, e]) => (
+                        <tr key={d} className="border-t border-neutral-100 dark:border-neutral-900">
                           <td className="px-3 py-2">{d}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{fmt(e.mccQ)}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">
-                            {fmt(Math.round(e.mccV))}
+                          <td className="px-3 py-2 text-right tabular-nums">{fmt(e.qM)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{fmt(Math.round(e.MCC))}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{fmt(e.qO)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{fmt(Math.round(e.MOE))}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-amber-600">
+                            {e.disc > 0.001 ? fmt(Math.round(e.disc)) : "—"}
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums">{fmt(e.moeQ)}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">
-                            {fmt(Math.round(e.moeV))}
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums font-semibold">
-                            {fmt(Math.round(e.mccV + e.moeV))}
-                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt(Math.round(e.MCC + e.MOE))}</td>
                         </tr>
                       ))
                     )}
@@ -279,38 +429,54 @@ export default function SalesPage() {
 
             <section className="mt-5">
               <h2 className="text-sm font-semibold text-neutral-900 dark:text-white mb-2">
-                영수증 ({fmt(receipts.length)}건) — 행 클릭 = 상세
+                영수증 ({fmt(receipts.length)}건{discountedReceipts.length > 0 ? ` · 할인 ${discountedReceipts.length}건` : ""}) — 행 클릭 = 상세
               </h2>
               <div className="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800 max-h-96 overflow-y-auto">
                 <table className="w-full text-sm bg-white dark:bg-neutral-950">
                   <thead>
                     <tr className="bg-neutral-100 dark:bg-neutral-900 text-xs text-neutral-500 sticky top-0">
-                      <th className="px-3 py-2 text-left">영수증 번호</th>
+                      <th className="px-3 py-2 text-left">상품</th>
+                      <th className="px-3 py-2 text-left">영수증</th>
                       <th className="px-3 py-2 text-left">시간</th>
                       <th className="px-3 py-2">매장</th>
-                      <th className="px-3 py-2 text-right">품목</th>
-                      <th className="px-3 py-2 text-right">추정 금액</th>
+                      <th className="px-3 py-2 text-right">할인</th>
+                      <th className="px-3 py-2 text-right">실결제</th>
                     </tr>
                   </thead>
                   <tbody>
                     {receipts.map((r) => (
-                      <tr
-                        key={r.no}
-                        onClick={() => setSel(r)}
-                        className="border-t border-neutral-100 dark:border-neutral-900 hover:bg-blue-50/60 dark:hover:bg-blue-950/30 cursor-pointer"
-                      >
-                        <td className="px-3 py-2 tabular-nums">{r.no}</td>
-                        <td className="px-3 py-2 whitespace-nowrap text-neutral-500">
-                          {timeOf(r.at)}
+                      <tr key={r.no} onClick={() => setSel(r)}
+                        className="border-t border-neutral-100 dark:border-neutral-900 hover:bg-blue-50/60 dark:hover:bg-blue-950/30 cursor-pointer">
+                        <td className="px-3 py-1.5">
+                          <span className="flex items-center gap-1.5">
+                            {r.lines.slice(0, 3).map((l, i) =>
+                              l.image ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img key={i} src={l.image} alt="" loading="lazy"
+                                  className="w-8 h-8 rounded-md object-cover bg-neutral-100 dark:bg-neutral-800" />
+                              ) : (
+                                <span key={i} className="w-8 h-8 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-300 text-xs flex items-center justify-center">✦</span>
+                              )
+                            )}
+                            {r.lines.length > 3 && (
+                              <span className="text-xs text-neutral-400">+{r.lines.length - 3}</span>
+                            )}
+                          </span>
                         </td>
-                        <td className="px-3 py-2 text-center">{r.store}</td>
-                        <td className="px-3 py-2 text-right">{r.lines.length}</td>
-                        <td
-                          className={`px-3 py-2 text-right tabular-nums font-semibold ${
-                            r.total < 0 ? "text-red-600" : ""
-                          }`}
-                        >
-                          {fmt(Math.round(r.total))}
+                        <td className="px-3 py-1.5 tabular-nums text-neutral-500">{r.no}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap text-neutral-500">{timeOf(r.at)}</td>
+                        <td className="px-3 py-1.5 text-center">{r.store}</td>
+                        <td className="px-3 py-1.5 text-right">
+                          {r.discount > 0.001 ? (
+                            <span className="rounded-full bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 text-xs px-2 py-0.5">
+                              -{fmt(Math.round(r.discount))}
+                            </span>
+                          ) : (
+                            <span className="text-neutral-300">—</span>
+                          )}
+                        </td>
+                        <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${r.net < 0 ? "text-red-600" : ""}`}>
+                          {fmt(Math.round(r.net))}
                         </td>
                       </tr>
                     ))}
@@ -323,52 +489,67 @@ export default function SalesPage() {
       </main>
 
       {sel && (
-        <div
-          onClick={() => setSel(null)}
-          className="fixed inset-0 z-50 bg-black/45 flex items-center justify-center p-4"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-white dark:bg-neutral-900 rounded-2xl p-6 max-h-[85vh] overflow-auto"
-          >
-            <h3 className="font-bold text-neutral-900 dark:text-white">
-              영수증 {sel.no}
-            </h3>
-            <p className="text-xs text-neutral-500 mb-4">
-              {timeOf(sel.at)} · {sel.store}
-            </p>
+        <div onClick={() => setSel(null)}
+          className="fixed inset-0 z-50 bg-black/45 flex items-center justify-center p-4 print:static print:bg-white print:p-0 print:block">
+          <div onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white dark:bg-neutral-900 rounded-2xl p-6 max-h-[85vh] overflow-auto print:max-h-none print:shadow-none print:max-w-full print:dark:bg-white">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="font-bold text-neutral-900 dark:text-white">영수증 {sel.no}</h3>
+                <p className="text-xs text-neutral-500 mb-4">{timeOf(sel.at)} · {sel.store} 매장 · Whisper of Spring</p>
+              </div>
+              <button onClick={() => window.print()}
+                className="print:hidden rounded-lg border border-neutral-300 dark:border-neutral-700 text-xs text-neutral-600 dark:text-neutral-300 px-3 py-1.5">
+                🖨️ 출력
+              </button>
+            </div>
             <div className="space-y-2">
               {sel.lines.map((l, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between text-sm bg-neutral-50 dark:bg-neutral-800 rounded-lg px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-neutral-900 dark:text-white">
-                      {l.name}
-                    </div>
-                    <div className="text-[11px] text-neutral-400">SKU {l.sku}</div>
-                  </div>
-                  <div className="text-right whitespace-nowrap ml-3">
-                    <div className={l.signed < 0 ? "text-red-600" : ""}>
-                      {l.signed > 0 ? "" : "반품 "}
-                      {l.qty}개
-                    </div>
+                <div key={i} className="flex items-center gap-3 text-sm bg-neutral-50 dark:bg-neutral-800 rounded-lg px-3 py-2 print:bg-white print:border print:border-neutral-200">
+                  {l.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={l.image} alt="" className="w-12 h-12 rounded-lg object-cover bg-neutral-100" />
+                  ) : (
+                    <span className="w-12 h-12 rounded-lg bg-neutral-100 dark:bg-neutral-700 text-neutral-300 flex items-center justify-center">✦</span>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-neutral-900 dark:text-white">{l.name}</div>
                     <div className="text-[11px] text-neutral-400">
-                      {l.price !== null ? "AED " + fmt(l.price) : "—"}
+                      SKU {l.sku} · {l.isReturn ? "반품 " : ""}{l.qty}개
+                      {l.discount > 0.001 && (
+                        <span className="text-amber-600"> · 할인 -{fmt(Math.round(l.discount))}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right whitespace-nowrap">
+                    {l.discount > 0.001 && (
+                      <div className="text-[11px] text-neutral-400 line-through">{fmt(Math.round(l.gross))}</div>
+                    )}
+                    <div className={`font-semibold ${l.isReturn ? "text-red-600" : "text-neutral-900 dark:text-white"}`}>
+                      {l.isReturn ? "-" : ""}{fmt(Math.round(l.net))}
                     </div>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="flex justify-between mt-4 pt-3 border-t border-neutral-200 dark:border-neutral-800 text-sm font-bold text-neutral-900 dark:text-white">
-              <span>추정 합계 (정가 기준)</span>
-              <span>AED {fmt(Math.round(sel.total))}</span>
+            <div className="mt-4 pt-3 border-t border-neutral-200 dark:border-neutral-800 space-y-1 text-sm">
+              <div className="flex justify-between text-neutral-500">
+                <span>정가 합계<Help text="할인 전 금액 (정가 × 수량의 합)" /></span>
+                <span className="tabular-nums">AED {fmt(Math.round(sel.gross))}</span>
+              </div>
+              {sel.discount > 0.001 && (
+                <div className="flex justify-between text-amber-600">
+                  <span>할인</span>
+                  <span className="tabular-nums">- AED {fmt(Math.round(sel.discount))}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-neutral-900 dark:text-white">
+                <span>실결제 합계{sel.estimated && <span className="font-normal text-xs text-neutral-400"> (일부 추정)</span>}</span>
+                <span className="tabular-nums">AED {fmt(Math.round(sel.net))}</span>
+              </div>
             </div>
-            <button
-              onClick={() => setSel(null)}
-              className="mt-4 w-full rounded-lg border border-neutral-300 dark:border-neutral-700 py-2 text-sm text-neutral-700 dark:text-neutral-300"
-            >
+            <button onClick={() => setSel(null)}
+              className="print:hidden mt-4 w-full rounded-lg border border-neutral-300 dark:border-neutral-700 py-2 text-sm text-neutral-700 dark:text-neutral-300">
               닫기
             </button>
           </div>

@@ -7,13 +7,21 @@ const LV_BASE = "https://api.loyverse.com/v1.0";
 // Loyverse 무료 플랜은 영수증 조회가 최근 31일로 제한됨 → 여유 있게 30일 전부터 백필
 const backfillFrom = () => new Date(Date.now() - 30 * 86400_000).toISOString();
 
+type LvLine = {
+  sku?: string;
+  quantity: number;
+  price?: number; // 정가 단가
+  gross_total_money?: number; // 정가 × 수량
+  total_money?: number; // 실결제(할인 반영)
+  total_discount?: number;
+};
 type LvReceipt = {
   receipt_number: string;
   receipt_type: string; // SALE | REFUND
   receipt_date?: string;
   created_at?: string;
   store_id: string;
-  line_items?: { sku?: string; quantity: number }[];
+  line_items?: LvLine[];
 };
 
 async function lv(path: string, token: string) {
@@ -122,6 +130,9 @@ export async function POST() {
               unknownSku++;
               continue;
             }
+            const gross =
+              li.gross_total_money ?? (li.price != null ? li.price * Math.abs(li.quantity) : null);
+            const net = li.total_money ?? gross;
             movRows.push({
               product_id: pid,
               store,
@@ -130,6 +141,11 @@ export async function POST() {
               reason: `Loyverse ${rec.receipt_number}`,
               apply_stock: applyStock,
               created_at: when, // 정산이 실제 판매 시각 기준이 되도록
+              unit_price: li.price ?? null,
+              line_total: net,
+              discount:
+                li.total_discount ??
+                (gross != null && net != null ? Math.max(gross - net, 0) : null),
             });
             lines++;
           }
