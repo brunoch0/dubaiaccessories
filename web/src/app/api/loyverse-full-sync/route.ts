@@ -149,8 +149,9 @@ export async function POST() {
     }
 
     // 5) 기준 시점 갱신 — 이후 판매 동기화는 지금부터
+    // 주의: loyverse_last_sync(판매 동기화 기준점)는 건드리지 않는다 —
+    // 전체 새로고침이 기준점을 점프시키면 그 사이 영수증이 영구 누락된다 (8/5 갭 사고의 원인)
     await db.from("app_settings").upsert([
-      { key: "loyverse_last_sync", value: new Date().toISOString() },
       { key: "loyverse_snapshot_at", value: new Date().toISOString() },
       { key: "sync_mode", value: "api" },
     ]);
