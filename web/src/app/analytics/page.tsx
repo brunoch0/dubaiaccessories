@@ -257,7 +257,7 @@ export default function AnalyticsPage() {
       <Nav />
       <main className="max-w-6xl mx-auto px-4 py-6">
         <h1 className="text-lg font-bold text-neutral-900 dark:text-white">
-          분석 <span className="text-xs font-normal text-amber-500 align-middle border border-amber-300 dark:border-amber-700 rounded-full px-2 py-0.5">beta</span>
+          분석 <span className="text-xs font-normal text-amber-500 align-middle border border-amber-300 dark:border-amber-700 rounded-full px-2 py-0.5">Beta</span>
         </h1>
         <p className="text-sm text-neutral-500 mt-1 mb-4">
           판매·재고·고객 데이터에서 다음 행동을 뽑아냅니다. 판매 지표 기간:

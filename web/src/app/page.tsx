@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Nav from "@/components/Nav";
 import { createClient, fetchAll } from "@/lib/supabase";
+import { CHANGELOG } from "@/lib/changelog";
 
 type Inv = { product_id: string; store: string; qty: number };
 type Prod = { id: string; category: string; price: number | null };
@@ -534,6 +535,41 @@ export default function Dashboard() {
                   — 파트너 합의 후 일괄 적용
                 </li>
               </ul>
+            </section>
+
+            <section className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 mt-4">
+              <details>
+                <summary className="text-sm font-semibold text-neutral-900 dark:text-white cursor-pointer select-none">
+                  🛠️ 시스템 개발 소식{" "}
+                  <span className="text-xs font-normal text-neutral-400">
+                    (최근: {CHANGELOG[0].date} — {CHANGELOG[0].title})
+                  </span>
+                </summary>
+                <ol className="mt-3 space-y-2">
+                  {CHANGELOG.map((c, i) => (
+                    <li key={i} className="flex gap-3 text-sm">
+                      <span className="text-xs text-neutral-400 tabular-nums w-8 shrink-0 pt-0.5">
+                        {c.date}
+                      </span>
+                      <span>
+                        <span
+                          className={`text-neutral-900 dark:text-white ${
+                            c.milestone ? "font-semibold" : ""
+                          }`}
+                        >
+                          {c.milestone ? "★ " : ""}
+                          {c.title}
+                        </span>
+                        {c.desc && (
+                          <span className="block text-xs text-neutral-500 mt-0.5">
+                            {c.desc}
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </details>
             </section>
           </>
         )}
