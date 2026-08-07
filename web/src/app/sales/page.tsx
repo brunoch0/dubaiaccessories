@@ -273,6 +273,7 @@ export default function SalesPage() {
   const [to, setTo] = useState(isoDaysAgo(0));
   const [storeF, setStoreF] = useState<"" | "MCC" | "MOE">("");
   const [movs, setMovs] = useState<Mov[] | null>(null);
+  const [chartMode, setChartMode] = useState<"bar" | "line">("line");
   const [recCust, setRecCust] = useState<Map<string, string>>(new Map());
   const [prods, setProds] = useState<Map<string, Prod>>(new Map());
   const [sel, setSel] = useState<Receipt | null>(null);
@@ -555,7 +556,7 @@ export default function SalesPage() {
 
             {daysAsc.length > 0 && (
               <section className="mt-5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5">
-                <div className="flex items-center gap-4 mb-3">
+                <div className="flex items-center gap-4 mb-3 flex-wrap">
                   <h2 className="text-sm font-semibold text-neutral-900 dark:text-white">일별 순매출 추이</h2>
                   <span className="flex items-center gap-1 text-xs text-neutral-500">
                     <span className="w-2.5 h-2.5 rounded-sm" style={{ background: S_COLORS.MCC }} /> MCC
@@ -563,8 +564,76 @@ export default function SalesPage() {
                   <span className="flex items-center gap-1 text-xs text-neutral-500">
                     <span className="w-2.5 h-2.5 rounded-sm" style={{ background: S_COLORS.MOE }} /> MOE
                   </span>
+                  {!storeF && (
+                    <span className="flex items-center gap-1 text-xs text-neutral-500">
+                      <span className="w-4 h-0.5 border-t-2 border-dashed border-neutral-400" /> 합계
+                    </span>
+                  )}
+                  <div className="ml-auto flex gap-1 print:hidden">
+                    {(["line", "bar"] as const).map((mo) => (
+                      <button key={mo} onClick={() => setChartMode(mo)}
+                        className={`px-3 py-1 rounded-full text-xs ${chartMode === mo ? "bg-neutral-900 dark:bg-white text-white dark:text-black font-semibold" : "border border-neutral-300 dark:border-neutral-700 text-neutral-500"}`}>
+                        {mo === "line" ? "📈 선형" : "📊 막대"}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex items-end gap-[3px] h-36 overflow-x-auto pb-1">
+                {chartMode === "line" && (() => {
+                  const showM = !storeF || storeF === "MCC";
+                  const showO = !storeF || storeF === "MOE";
+                  const showT = !storeF;
+                  const lineMax = Math.max(
+                    ...daysAsc.map(([, e]) =>
+                      Math.max(showM ? e.MCC : 0, showO ? e.MOE : 0, showT ? e.MCC + e.MOE : 0)
+                    ),
+                    1
+                  );
+                  const W = Math.max(daysAsc.length * 30, 560);
+                  const H = 150;
+                  const px = (i: number) =>
+                    12 + i * ((W - 24) / Math.max(daysAsc.length - 1, 1));
+                  const py = (v: number) => 10 + (1 - v / lineMax) * (H - 40);
+                  const pts = (get: (e: (typeof daysAsc)[0][1]) => number) =>
+                    daysAsc.map(([, e], i) => `${px(i)},${py(get(e))}`).join(" ");
+                  return (
+                    <div className="overflow-x-auto">
+                      <svg width={W} height={H} className="block">
+                        {[0.25, 0.5, 0.75, 1].map((f) => (
+                          <line key={f} x1={12} x2={W - 12} y1={py(lineMax * f)} y2={py(lineMax * f)}
+                            stroke="currentColor" className="text-neutral-200 dark:text-neutral-800" strokeWidth={1} />
+                        ))}
+                        {showT && (
+                          <polyline points={pts((e) => e.MCC + e.MOE)} fill="none"
+                            stroke="#898781" strokeWidth={1.5} strokeDasharray="4 4" />
+                        )}
+                        {showM && <polyline points={pts((e) => e.MCC)} fill="none" stroke={S_COLORS.MCC} strokeWidth={2} />}
+                        {showO && <polyline points={pts((e) => e.MOE)} fill="none" stroke={S_COLORS.MOE} strokeWidth={2} />}
+                        {daysAsc.map(([d, e], i) => (
+                          <g key={d}>
+                            {showM && (
+                              <circle cx={px(i)} cy={py(e.MCC)} r={3.5} fill={S_COLORS.MCC}>
+                                <title>{`${d} MCC: AED ${fmt(Math.round(e.MCC))}`}</title>
+                              </circle>
+                            )}
+                            {showO && (
+                              <circle cx={px(i)} cy={py(e.MOE)} r={3.5} fill={S_COLORS.MOE}>
+                                <title>{`${d} MOE: AED ${fmt(Math.round(e.MOE))}`}</title>
+                              </circle>
+                            )}
+                            {i % xEvery === 0 && (
+                              <text x={px(i)} y={H - 6} textAnchor="middle" fontSize={9}
+                                fill="currentColor" className="text-neutral-400">
+                                {d.slice(5)}
+                              </text>
+                            )}
+                          </g>
+                        ))}
+                      </svg>
+                    </div>
+                  );
+                })()}
+
+                <div className={`flex items-end gap-[3px] h-36 overflow-x-auto pb-1 ${chartMode !== "bar" ? "hidden" : ""}`}>
                   {daysAsc.map(([d, e], i) => (
                     <div key={d} className="flex flex-col items-center gap-1 min-w-7 flex-1 group relative">
                       <div className="flex items-end gap-[2px] w-full h-28 justify-center">
